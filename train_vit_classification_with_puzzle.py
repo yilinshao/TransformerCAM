@@ -62,7 +62,7 @@ parser.add_argument('--lr', default=0.1, type=float)
 parser.add_argument('--wd', default=1e-4, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-parser.add_argument('--image_size', default=256, type=int)
+parser.add_argument('--image_size', default=448, type=int)
 parser.add_argument('--min_image_size', default=320, type=int)
 parser.add_argument('--max_image_size', default=640, type=int)
 
@@ -260,19 +260,18 @@ if __name__ == '__main__':
                 images = images.cuda()
                 labels = labels.cuda()
 
-                _, features = model(images, with_cam=True)
+                _, att_mat = model(images)
 
                 # features = resize_for_tensors(features, images.size()[-2:])
                 # gt_masks = resize_for_tensors(gt_masks, features.size()[-2:], mode='nearest')
 
-                mask = labels.unsqueeze(2).unsqueeze(3)
-                cams = (make_cam(features) * mask)
+                cams = make_att_map(att_mat)
 
                 # for visualization
                 if step == 0:
                     obj_cams = cams.max(dim=1)[0]
 
-                    for b in range(8):
+                    for b in range(1):
                         image = get_numpy_from_tensor(images[b])
                         cam = get_numpy_from_tensor(obj_cams[b])
 
@@ -339,6 +338,7 @@ if __name__ == '__main__':
         ###############################################################################
         # Puzzle Module
         ###############################################################################
+
         tiled_images = tile_features(images, args.num_pieces)
 
         tiled_logits, tiled_att_mat = model(tiled_images, merge_logits=True)
@@ -347,23 +347,25 @@ if __name__ == '__main__':
         # Losses
         ###############################################################################
 
-        # TODO: puzzle-cam computes loss between all features, here I only compute the first
-
         cam = make_att_map(att_mat)
         re_cam = make_att_map(tiled_att_mat)
+
         re_cam = merge_features(re_cam, args.num_pieces, args.batch_size)
+
 
         class_loss = class_loss_fn(logits, labels).mean()
 
         if 'pcl' in loss_option:
+
             p_class_loss = class_loss_fn(tiled_logits, labels).mean()
+
         else:
             p_class_loss = torch.zeros(1).cuda()
 
         if 're' in loss_option:
             if args.re_loss_option == 'masking':
                 class_mask = labels.unsqueeze(2).unsqueeze(3)
-                re_loss = re_loss_fn(cam, re_cam) * class_mask
+                re_loss = re_loss_fn(cam, re_cam)
                 re_loss = re_loss.mean()
             # elif args.re_loss_option == 'selection':
             #     re_loss = 0.
@@ -394,7 +396,7 @@ if __name__ == '__main__':
         #################################################################################################
 
         optimizer.zero_grad()
-        torch.autograd.set_detect_anomaly(True)
+
         loss.backward()
         optimizer.step()
 

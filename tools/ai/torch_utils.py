@@ -58,12 +58,12 @@ def make_cam(x, epsilon=1e-5):
 
 
 def make_att_map(att_mat):
+
     att_mat = torch.stack(att_mat)
     att_mat = torch.mean(att_mat, dim=2)
     residual_att = torch.eye(att_mat.size(2)).cuda()
     aug_att_mat = att_mat + residual_att
     aug_att_mat = aug_att_mat / aug_att_mat.sum(dim=-1).unsqueeze(-1)
-    joint_attentions = torch.zeros(aug_att_mat.size()).cuda()
     joint_attentions = aug_att_mat[0].clone()
     for n in range(1, aug_att_mat.size(0)):
         joint_attentions = torch.matmul(aug_att_mat[n], joint_attentions)

@@ -285,7 +285,8 @@ class VisionTransformer(nn.Module):
             for batch in logits_batch:
                 logits_list.append(batch[:, 0].unsqueeze(0))
             logits = torch.cat(logits_list)
-            logits = self.merge_logits_head(logits.transpose(2, 1)).transpose(2, 1)
+            logits = self.merge_logits_head(logits.transpose(2, 1)).transpose(2, 1).squeeze(1)
+
             logits = self.head(logits)
         else:
             logits = self.head(x[:, 0])
