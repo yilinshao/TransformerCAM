@@ -76,6 +76,11 @@ def make_att_map(att_mat):
     # mask = cv2.resize(mask / mask.max(), im.size[-2:])[..., np.newaxis]
     return mask
 
+def reduce_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    rt = tensor.clone()
+    torch.distributed.all_reduce(rt, op=torch.distributed.reduce_op.SUM)
+    rt /= torch.distributed.get_world_size()
+    return rt
 
 def one_hot_embedding(label, classes):
     """Embedding labels to one-hot form.
