@@ -91,6 +91,7 @@ parser.add_argument('--re_loss_option', default='masking', type=str)  # 'none', 
 parser.add_argument('--alpha', default=1.0, type=float)
 parser.add_argument('--alpha_schedule', default=0.50, type=float)
 
+parser.add_argument('--resume', default=False, type=bool)
 if __name__ == '__main__':
     ###################################################################################
     # Arguments
@@ -149,7 +150,7 @@ if __name__ == '__main__':
     train_dataset = VOC_Dataset_For_Classification(args.data_dir, 'train_aug', train_transform)
 
     train_dataset_for_seg = VOC_Dataset_For_Testing_CAM(args.data_dir, 'train', test_transform)
-    valid_dataset_for_seg = VOC_Dataset_For_Testing_CAM(args.data_dir, 'val', test_transform)
+    # valid_dataset_for_seg = VOC_Dataset_For_Testing_CAM(args.data_dir, 'val', test_transform)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True,
                               drop_last=True)
@@ -200,9 +201,6 @@ if __name__ == '__main__':
 
         # for sync bn
         # patch_replication_callback(model)
-
-    load_model_fn = lambda: load_model(model, model_path, parallel=the_number_of_gpu > 1)
-    save_model_fn = lambda: save_model(model, model_path, parallel=the_number_of_gpu > 1)
 
     ###################################################################################
     # Loss, Optimizer
@@ -260,15 +258,17 @@ if __name__ == '__main__':
                 images = images.cuda()
                 labels = labels.cuda()
 
-                _, att_mat = model(images)
+                pred_logits, att_mat = model(images)
+                pred_cls = np.argmax(get_numpy_from_tensor(pred_logits), axis=-1)
 
                 # features = resize_for_tensors(features, images.size()[-2:])
                 # gt_masks = resize_for_tensors(gt_masks, features.size()[-2:], mode='nearest')
 
                 cams = make_att_map(att_mat)
+                cams = make_cam(cams)
 
                 # for visualization
-                if step == 0:
+                if step < 5:
                     obj_cams = cams.max(dim=1)[0]
 
                     for b in range(1):
@@ -287,7 +287,7 @@ if __name__ == '__main__':
 
                         writer.add_image('CAM/{}'.format(b + 1), image, iteration, dataformats='HWC')
 
-                for batch_index in range(images.size()[0]):
+                for batch_index in range(images.size()[0]):  # iterate on every image in a batch
                     # c, h, w -> h, w, c
                     cam = get_numpy_from_tensor(cams[batch_index]).transpose((1, 2, 0))
                     gt_mask = get_numpy_from_tensor(gt_masks[batch_index])
@@ -297,9 +297,9 @@ if __name__ == '__main__':
 
                     for th in thresholds:
                         bg = np.ones_like(cam[:, :, 0]) * th
-                        pred_mask = np.argmax(np.concatenate([bg[..., np.newaxis], cam], axis=-1), axis=-1)
-
-                        meter_dic[th].add(pred_mask, gt_mask)
+                        pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cam], axis=-1), axis=-1)
+                        pred_masks[pred_masks == 1] = pred_cls[batch_index] + 1
+                        meter_dic[th].add(pred_masks, gt_mask)
 
                 # break
 
@@ -326,7 +326,20 @@ if __name__ == '__main__':
 
     loss_option = args.loss_option.split('_')
 
-    for iteration in range(max_iteration):
+    begin_iter = 0
+    if args.resume:
+        checkpoint_dict = torch.load(model_path)
+        model.module.load_state_dict(checkpoint_dict['state_dict'])
+        optimizer.load_state_dict(checkpoint_dict['optimizer'])
+        best_train_mIoU = checkpoint_dict["best_train_mIoU"]
+        best_threshold = checkpoint_dict['best_threshold']
+        begin_iter = checkpoint_dict['iter']
+
+    #################################################################################################
+    # Start Training
+    #################################################################################################
+    for iteration in range(begin_iter, max_iteration):
+
         images, labels = train_iterator.get()
         images, labels = images.cuda(), labels.cuda()
 
@@ -459,7 +472,13 @@ if __name__ == '__main__':
             if best_train_mIoU == -1 or best_train_mIoU < mIoU:
                 best_train_mIoU = mIoU
 
-                save_model_fn()
+                save_trcam_model(iter=iteration + 1,
+                                 model=model,
+                                 optimizer=optimizer,
+                                 best_train_mIoU=best_train_mIoU,
+                                 best_threshold=threshold,
+                                 model_path=model_path,
+                                 parallel=the_number_of_gpu > 1)
                 log_func('[i] save model')
 
             data = {

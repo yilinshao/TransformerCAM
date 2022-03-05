@@ -119,6 +119,21 @@ def save_model(model, model_path, parallel=False):
     else:
         torch.save(model.state_dict(), model_path)
 
+def save_trcam_model(iter, model, optimizer, best_train_mIoU, best_threshold, model_path, parallel=False):
+    if parallel:
+        torch.save({'iter': iter,
+                    'state_dict': model.module.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'best_threshold': best_threshold,
+                    'best_train_mIoU': best_train_mIoU}, model_path)
+    else:
+        torch.save({'iter': iter,
+                    'state_dict': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'best_threshold': best_threshold,
+                    'best_train_mIoU': best_train_mIoU}, model_path)
+
+
 def transfer_model(pretrained_model, model):
     pretrained_dict = pretrained_model.state_dict()
     model_dict = model.state_dict()

@@ -150,7 +150,8 @@ class Embeddings(nn.Module):
                                        stride=patch_size)
         self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches+1, config.hidden_size))
         # TODO: add interface for the tiling num: 4
-        self.tiled_position_embeddings = nn.Parameter(torch.zeros(1, int(n_patches/4)+1, config.hidden_size))
+        assert n_patches % 4 == 0
+        self.tiled_position_embeddings = nn.Parameter(torch.zeros(1, int(n_patches/4) + 1, config.hidden_size))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
 
         self.dropout = Dropout(config.transformer["dropout_rate"])
@@ -166,6 +167,7 @@ class Embeddings(nn.Module):
         x = x.transpose(-1, -2)
         x = torch.cat((cls_tokens, x), dim=1)
 
+        # 给裁剪后的图像进行Embedding
         if x.shape[-2] != self.position_embeddings.shape[-2]:
             embeddings = x + self.tiled_position_embeddings
         else:
@@ -280,13 +282,21 @@ class VisionTransformer(nn.Module):
         x, attn_weights = self.transformer(x)
         if merge_logits:
             # TODO: change the 4
-            logits_batch = list(torch.split(x, 4))
-            logits_list = []
-            for batch in logits_batch:
-                logits_list.append(batch[:, 0].unsqueeze(0))
-            logits = torch.cat(logits_list)
-            logits = self.merge_logits_head(logits.transpose(2, 1)).transpose(2, 1).squeeze(1)
-
+            assert x.shape[0] % 4 == 0
+            ori_bc = int(x.shape[0]/4)
+            tiled_x_list = list(torch.split(x, ori_bc))
+            merged_x_per_img = []
+            merged_x_per_batch = []
+            for bc_i in range(ori_bc):
+                for tiled_i in range(4):
+                    merged_x_per_img.append(tiled_x_list[tiled_i][bc_i][0].unsqueeze(0))
+                merged_x_per_batch.append(torch.cat(merged_x_per_img, dim=0).unsqueeze(0))
+            # if len(merged_x_per_batch) > 1:
+            #     merged_x_per_batch = torch.cat(merged_x_per_batch)
+            # else:
+            #     merged_x_per_batch = torch.cat(merged_x_per_batch)
+            merged_x_per_batch = torch.cat(merged_x_per_batch, dim=0)
+            logits = self.merge_logits_head(merged_x_per_batch.transpose(2, 1)).transpose(2, 1).squeeze(1)
             logits = self.head(logits)
         else:
             logits = self.head(x[:, 0])
