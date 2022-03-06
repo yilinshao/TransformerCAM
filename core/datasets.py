@@ -53,7 +53,7 @@ class VOC_Dataset(torch.utils.data.Dataset):
         return len(self.image_id_list)
 
     def get_image(self, image_id):
-        image = Image.open(self.image_dir + image_id + '.jpg').convert('RGB')
+        image = Image.open(self.image_dir + image_id + '.jpg').convert('RGB')  # remove the transparent channel
         return image
 
     def get_mask(self, image_id):

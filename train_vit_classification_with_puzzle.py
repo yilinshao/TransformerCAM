@@ -246,11 +246,12 @@ if __name__ == '__main__':
     thresholds = list(np.arange(0.10, 0.50, 0.05))
 
 
-    def evaluate(loader):
+    def evaluate(loader, colors):
         model.eval()
         eval_timer.tik()
 
         meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
+        vis_meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
 
         with torch.no_grad():
             length = len(loader)
@@ -268,16 +269,53 @@ if __name__ == '__main__':
                 cams = make_cam(cams)
 
                 # for visualization
-                if step < 5:
+                if step < 4:
                     obj_cams = cams.max(dim=1)[0]
 
                     for b in range(1):
                         image = get_numpy_from_tensor(images[b])
                         cam = get_numpy_from_tensor(obj_cams[b])
+                        gt_mask = get_numpy_from_tensor(gt_masks[b])
 
                         image = denormalize(image, imagenet_mean, imagenet_std)[..., ::-1]
                         h, w, c = image.shape
+                        ori_img = image[..., ::-1]
+                        ########################################
+                        # get gt_mask
+                        ########################################
+                        color_gt_mask = decode_from_colormap(gt_mask, colors)[..., ::-1]
 
+                        ########################################
+                        # get pred_mask
+                        ########################################
+                        cam_h, cam_w = cam.shape
+                        gt_mask = cv2.resize(gt_mask, (cam_w, cam_h), interpolation=cv2.INTER_NEAREST)
+
+                        for th in thresholds:
+                            bg = np.ones_like(cam[:, :]) * th
+                            pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cam[..., np.newaxis]], axis=-1), axis=-1)
+                            pred_masks[pred_masks == 1] = pred_cls[b] + 1
+                            vis_meter_dic[th].add(pred_masks, gt_mask)
+
+                        best_th = 0.0
+                        best_mIoU = 0.0
+
+                        for th in thresholds:
+                            mIoU, _ = vis_meter_dic[th].get(clear=True)
+                            if best_mIoU < mIoU:
+                                best_th = th
+                                best_mIoU = mIoU
+
+                        bg = np.ones_like(cam[:, :]) * best_th
+                        pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cam[..., np.newaxis]], axis=-1),
+                                               axis=-1)
+                        pred_masks[pred_masks == 1] = pred_cls[b] + 1
+                        color_pred_mask = decode_from_colormap(pred_masks.astype(np.int32), colors)[..., ::-1]
+                        color_pred_mask = cv2.resize(color_pred_mask, (w, h), interpolation=cv2.INTER_LINEAR)
+
+                        ###################################
+                        # get cam
+                        ###################################
                         cam = (cam * 255).astype(np.uint8)
                         cam = cv2.resize(cam, (w, h), interpolation=cv2.INTER_LINEAR)
                         cam = colormap(cam)
@@ -285,7 +323,11 @@ if __name__ == '__main__':
                         image = cv2.addWeighted(image, 0.5, cam, 0.5, 0)[..., ::-1]
                         image = image.astype(np.float32) / 255.
 
-                        writer.add_image('CAM/{}'.format(b + 1), image, iteration, dataformats='HWC')
+                        # writer.add_image('ori_image/{}'.format(step + 1), ori_img.astype(np.float32) / 255., iteration, dataformats='HWC')
+                        writer.add_image('cam/{}.'.format(step + 1), image, iteration, dataformats='HWC')
+                        writer.add_image('gt_mask/{}.'.format(step + 1), color_gt_mask.astype(np.float32) / 255., iteration, dataformats='HWC')
+                        writer.add_image('pred_mask/{}.'.format(step + 1), color_pred_mask.astype(np.float32) / 255., iteration, dataformats='HWC')
+                        # writer.add_image('tiled_cam/{}.'.format(step + 1), image, iteration, dataformats='HWC')
 
                 for batch_index in range(images.size()[0]):  # iterate on every image in a batch
                     # c, h, w -> h, w, c
@@ -334,6 +376,7 @@ if __name__ == '__main__':
         best_train_mIoU = checkpoint_dict["best_train_mIoU"]
         best_threshold = checkpoint_dict['best_threshold']
         begin_iter = checkpoint_dict['iter']
+        log_func('[i] Loaded checkpoint from {}'.format(model_path))
 
     #################################################################################################
     # Start Training
@@ -466,8 +509,9 @@ if __name__ == '__main__':
         #################################################################################################
         # Evaluation
         #################################################################################################
-        if (iteration + 1) % val_iteration == 0:
-            threshold, mIoU = evaluate(train_loader_for_seg)
+        # if (iteration + 1) % val_iteration == 0:
+        if (iteration + 1) % 1 == 0:
+            threshold, mIoU = evaluate(train_loader_for_seg, train_dataset_for_seg.colors)
 
             if best_train_mIoU == -1 or best_train_mIoU < mIoU:
                 best_train_mIoU = mIoU
