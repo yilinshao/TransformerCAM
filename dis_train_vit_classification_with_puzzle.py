@@ -36,6 +36,7 @@ from tools.ai.evaluate_utils import *
 
 from tools.ai.augment_utils import *
 from tools.ai.randaugment import *
+from tqdm import tqdm
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
 parser = argparse.ArgumentParser()
@@ -63,9 +64,9 @@ parser.add_argument('--lr', default=0.1, type=float)
 parser.add_argument('--wd', default=1e-4, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-parser.add_argument('--image_size', default=384, type=int)
-parser.add_argument('--min_image_size', default=320, type=int)
-parser.add_argument('--max_image_size', default=480, type=int)
+parser.add_argument('--image_size', default=512, type=int)
+parser.add_argument('--min_image_size', default=480, type=int)
+parser.add_argument('--max_image_size', default=640, type=int)
 
 parser.add_argument('--print_ratio', default=0.1, type=float)
 
@@ -93,6 +94,7 @@ parser.add_argument('--alpha', default=1.0, type=float)
 parser.add_argument('--alpha_schedule', default=0.50, type=float)
 
 parser.add_argument('--local_rank', default=0, type=int)
+parser.add_argument('--resume', default=False, type=bool)
 
 if __name__ == '__main__':
     ###################################################################################
@@ -191,7 +193,7 @@ if __name__ == '__main__':
     # Network
     ###################################################################################
     model = ViT_classifier(num_classes=meta_dic['classes'], img_size=args.image_size)
-    # param_groups = model.get_parameter_groups(print_fn=None)
+    param_groups = model.get_parameter_groups(print_fn=log_func)
 
     # gap_fn = model.global_average_pooling_2d
 
@@ -210,12 +212,6 @@ if __name__ == '__main__':
     the_number_of_gpu = len(use_gpu.split(','))
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
 
-        # for sync bn
-        # patch_replication_callback(model)
-
-    load_model_fn = lambda: load_model(model, model_path, parallel=the_number_of_gpu > 1)
-    save_model_fn = lambda: save_model(model, model_path, parallel=the_number_of_gpu > 1)
-
     ###################################################################################
     # Loss, Optimizer
     ###################################################################################
@@ -226,22 +222,22 @@ if __name__ == '__main__':
     else:
         re_loss_fn = L2_Loss
 
-    # log_func('[i] The number of pretrained weights : {}'.format(len(param_groups[0])))
-    # log_func('[i] The number of pretrained bias : {}'.format(len(param_groups[1])))
-    # log_func('[i] The number of scratched weights : {}'.format(len(param_groups[2])))
-    # log_func('[i] The number of scratched bias : {}'.format(len(param_groups[3])))
-    #
-    # optimizer = PolyOptimizer([
-    #     {'params': param_groups[0], 'lr': args.lr, 'weight_decay': args.wd},
-    #     {'params': param_groups[1], 'lr': 2 * args.lr, 'weight_decay': 0},
-    #     {'params': param_groups[2], 'lr': 10 * args.lr, 'weight_decay': args.wd},
-    #     {'params': param_groups[3], 'lr': 20 * args.lr, 'weight_decay': 0},
-    # ], lr=args.lr, momentum=0.9, weight_decay=args.wd, max_step=max_iteration, nesterov=args.nesterov)
+    log_func('[i] The number of pretrained weights : {}'.format(len(param_groups[0])))
+    log_func('[i] The number of pretrained bias : {}'.format(len(param_groups[1])))
+    log_func('[i] The number of scratched weights : {}'.format(len(param_groups[2])))
+    log_func('[i] The number of scratched bias : {}'.format(len(param_groups[3])))
 
-    optimizer = torch.optim.SGD(model.parameters(),
-                                lr=args.lr,
-                                momentum=0.9,
-                                weight_decay=args.wd)
+    optimizer = PolyOptimizer([
+        {'params': param_groups[0], 'lr': args.lr, 'weight_decay': args.wd},
+        {'params': param_groups[1], 'lr': 2 * args.lr, 'weight_decay': 0},
+        {'params': param_groups[2], 'lr': 10 * args.lr, 'weight_decay': args.wd},
+        {'params': param_groups[3], 'lr': 20 * args.lr, 'weight_decay': 0},
+    ], lr=args.lr, momentum=0.9, weight_decay=args.wd, max_step=max_iteration, nesterov=args.nesterov)
+
+    # optimizer = torch.optim.SGD(model.parameters(),
+    #                             lr=args.lr,
+    #                             momentum=0.9,
+    #                             weight_decay=args.wd)
 
     #################################################################################################
     # Train
@@ -257,14 +253,15 @@ if __name__ == '__main__':
     train_meter = Average_Meter(['loss', 'class_loss', 'p_class_loss', 're_loss', 'conf_loss', 'alpha'])
 
     best_train_mIoU = -1
-    thresholds = list(np.arange(0.10, 0.50, 0.05))
+    thresholds = list(np.arange(0.10, 0.70, 0.05))
 
 
-    def evaluate(loader):
+    def evaluate(loader, colors, local_rank):
         model.eval()
         eval_timer.tik()
 
         meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
+        vis_meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
 
         with torch.no_grad():
             length = len(loader)
@@ -272,24 +269,64 @@ if __name__ == '__main__':
                 images = images.cuda()
                 labels = labels.cuda()
 
-                _, att_mat = model(images)
+                pred_logits, att_mat = model(images)
+                pred_cls = np.argmax(get_numpy_from_tensor(pred_logits), axis=-1)
 
                 # features = resize_for_tensors(features, images.size()[-2:])
                 # gt_masks = resize_for_tensors(gt_masks, features.size()[-2:], mode='nearest')
 
                 cams = make_att_map(att_mat)
+                cams = make_cam(cams)
 
                 # for visualization
-                if step == 0:
+                if step < 4 and local_rank == 0:
                     obj_cams = cams.max(dim=1)[0]
 
                     for b in range(1):
                         image = get_numpy_from_tensor(images[b])
                         cam = get_numpy_from_tensor(obj_cams[b])
+                        gt_mask = get_numpy_from_tensor(gt_masks[b])
 
                         image = denormalize(image, imagenet_mean, imagenet_std)[..., ::-1]
                         h, w, c = image.shape
+                        ori_img = image[..., ::-1]
+                        ########################################
+                        # get gt_mask
+                        ########################################
+                        color_gt_mask = decode_from_colormap(gt_mask, colors)[..., ::-1]
 
+                        ########################################
+                        # get pred_mask
+                        ########################################
+                        cam_h, cam_w = cam.shape
+                        gt_mask = cv2.resize(gt_mask, (cam_w, cam_h), interpolation=cv2.INTER_NEAREST)
+
+                        for th in thresholds:
+                            bg = np.ones_like(cam[:, :]) * th
+                            pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cam[..., np.newaxis]], axis=-1),
+                                                   axis=-1)
+                            pred_masks[pred_masks == 1] = pred_cls[b] + 1
+                            vis_meter_dic[th].add(pred_masks, gt_mask)
+
+                        best_th = 0.0
+                        best_mIoU = 0.0
+
+                        for th in thresholds:
+                            mIoU, _ = vis_meter_dic[th].get(clear=True)
+                            if best_mIoU < mIoU:
+                                best_th = th
+                                best_mIoU = mIoU
+
+                        bg = np.ones_like(cam[:, :]) * best_th
+                        pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cam[..., np.newaxis]], axis=-1),
+                                               axis=-1)
+                        pred_masks[pred_masks == 1] = pred_cls[b] + 1
+                        color_pred_mask = decode_from_colormap(pred_masks.astype(np.int32), colors)[..., ::-1]
+                        color_pred_mask = cv2.resize(color_pred_mask, (w, h), interpolation=cv2.INTER_LINEAR)
+
+                        ###################################
+                        # get cam
+                        ###################################
                         cam = (cam * 255).astype(np.uint8)
                         cam = cv2.resize(cam, (w, h), interpolation=cv2.INTER_LINEAR)
                         cam = colormap(cam)
@@ -297,9 +334,15 @@ if __name__ == '__main__':
                         image = cv2.addWeighted(image, 0.5, cam, 0.5, 0)[..., ::-1]
                         image = image.astype(np.float32) / 255.
 
-                        writer.add_image('CAM/{}'.format(b + 1), image, iteration, dataformats='HWC')
+                        # writer.add_image('ori_image/{}'.format(step + 1), ori_img.astype(np.float32) / 255., iteration, dataformats='HWC')
+                        writer.add_image('cam/{}.'.format(step + 1), image, iteration, dataformats='HWC')
+                        writer.add_image('gt_mask/{}.'.format(step + 1), color_gt_mask.astype(np.float32) / 255.,
+                                         iteration, dataformats='HWC')
+                        writer.add_image('pred_mask/{}.'.format(step + 1), color_pred_mask.astype(np.float32) / 255.,
+                                         iteration, dataformats='HWC')
+                        # writer.add_image('tiled_cam/{}.'.format(step + 1), image, iteration, dataformats='HWC')
 
-                for batch_index in range(images.size()[0]):
+                for batch_index in range(images.size()[0]):  # iterate on every image in a batch
                     # c, h, w -> h, w, c
                     cam = get_numpy_from_tensor(cams[batch_index]).transpose((1, 2, 0))
                     gt_mask = get_numpy_from_tensor(gt_masks[batch_index])
@@ -309,9 +352,9 @@ if __name__ == '__main__':
 
                     for th in thresholds:
                         bg = np.ones_like(cam[:, :, 0]) * th
-                        pred_mask = np.argmax(np.concatenate([bg[..., np.newaxis], cam], axis=-1), axis=-1)
-
-                        meter_dic[th].add(pred_mask, gt_mask)
+                        pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cam], axis=-1), axis=-1)
+                        pred_masks[pred_masks == 1] = pred_cls[batch_index] + 1
+                        meter_dic[th].add(pred_masks, gt_mask)
 
                 # break
 
@@ -338,7 +381,18 @@ if __name__ == '__main__':
 
     loss_option = args.loss_option.split('_')
 
-    for iteration in range(max_iteration):
+    begin_iter = 0
+    if args.resume:
+        checkpoint_dict = torch.load(model_path)
+        model.module.load_state_dict(checkpoint_dict['state_dict'])
+        optimizer.load_state_dict(checkpoint_dict['optimizer'])
+        best_train_mIoU = checkpoint_dict["best_train_mIoU"]
+        best_threshold = checkpoint_dict['best_threshold']
+        begin_iter = checkpoint_dict['iter']
+        log_func('[i] Loaded checkpoint from {}'.format(model_path))
+
+    for iteration in tqdm(range(begin_iter, max_iteration), desc='Training iter'):
+
         images, labels = train_iterator.get()
         images, labels = images.cuda(), labels.cuda()
 
@@ -405,7 +459,19 @@ if __name__ == '__main__':
             alpha = min(args.alpha * iteration / (max_iteration * args.alpha_schedule), args.alpha)
 
         loss = class_loss + p_class_loss + alpha * re_loss + conf_loss
-        reduced_loss = reduce_tensor(re_loss.data)
+
+        reduced_loss = reduce_tensor(loss)
+        # print('reduced_loss:{}'.format(reduced_loss))
+        reduced_class_loss = reduce_tensor(class_loss)
+        # print('reduced_class_loss:{}'.format(reduced_class_loss))
+        reduced_p_class_loss = reduce_tensor(p_class_loss)
+        # print('reduced_p_class_loss:{}'.format(reduced_p_class_loss))
+        reduced_re_loss = reduce_tensor(re_loss)
+        # print('reduced_re_loss:{}'.format(reduced_re_loss))
+        reduced_conf_loss = reduce_tensor(conf_loss)
+        # print('reduced_conf_loss:{}'.format(reduced_conf_loss))
+
+
         #################################################################################################
 
         optimizer.zero_grad()
@@ -413,89 +479,102 @@ if __name__ == '__main__':
         loss.backward()
         optimizer.step()
 
-        train_meter.add({
-            'loss': loss.item(),
-            'class_loss': class_loss.item(),
-            'p_class_loss': p_class_loss.item(),
-            're_loss': re_loss.item(),
-            'conf_loss': conf_loss.item(),
-            'alpha': alpha,
-        })
+        if args.local_rank == 0:
+            #  reduce losses
+            train_meter.add({
+                'loss': reduced_loss.item(),
+                'class_loss': reduced_class_loss.item(),
+                'p_class_loss': reduced_p_class_loss.item(),
+                're_loss': reduced_re_loss.item(),
+                'conf_loss': reduced_conf_loss.item(),
+                'alpha': alpha,
+            })
 
         #################################################################################################
         # For Log
         #################################################################################################
         if (iteration + 1) % log_iteration == 0:
-            loss, class_loss, p_class_loss, re_loss, conf_loss, alpha = train_meter.get(clear=True)
-            learning_rate = float(get_learning_rate_from_optimizer(optimizer))
+            if args.local_rank == 0:
+                loss, class_loss, p_class_loss, re_loss, conf_loss, alpha = train_meter.get(clear=True)
 
-            data = {
-                'iteration': iteration + 1,
-                'learning_rate': learning_rate,
-                'alpha': alpha,
-                'loss': loss,
-                'class_loss': class_loss,
-                'p_class_loss': p_class_loss,
-                're_loss': re_loss,
-                'conf_loss': conf_loss,
-                'time': train_timer.tok(clear=True),
-            }
-            data_dic['train'].append(data)
-            write_json(data_path, data_dic)
+                learning_rate = float(get_learning_rate_from_optimizer(optimizer))
 
-            log_func('[i] \
-                iteration={iteration:,}, \
-                learning_rate={learning_rate:.4f}, \
-                alpha={alpha:.2f}, \
-                loss={loss:.4f}, \
-                class_loss={class_loss:.4f}, \
-                p_class_loss={p_class_loss:.4f}, \
-                re_loss={re_loss:.4f}, \
-                conf_loss={conf_loss:.4f}, \
-                time={time:.0f}sec'.format(**data)
-                     )
+                data = {
+                    'iteration': iteration + 1,
+                    'learning_rate': learning_rate,
+                    'alpha': alpha,
+                    'loss': loss,
+                    'class_loss': class_loss,
+                    'p_class_loss': p_class_loss,
+                    're_loss': re_loss,
+                    'conf_loss': conf_loss,
+                    'time': train_timer.tok(clear=True),
+                }
+                data_dic['train'].append(data)
+                write_json(data_path, data_dic)
 
-            writer.add_scalar('Train/loss', loss, iteration)
-            writer.add_scalar('Train/class_loss', class_loss, iteration)
-            writer.add_scalar('Train/p_class_loss', p_class_loss, iteration)
-            writer.add_scalar('Train/re_loss', re_loss, iteration)
-            writer.add_scalar('Train/conf_loss', conf_loss, iteration)
-            writer.add_scalar('Train/learning_rate', learning_rate, iteration)
-            writer.add_scalar('Train/alpha', alpha, iteration)
+                log_func('[i] \
+                    iteration={iteration:,}, \
+                    learning_rate={learning_rate:.4f}, \
+                    alpha={alpha:.2f}, \
+                    loss={loss:.4f}, \
+                    class_loss={class_loss:.4f}, \
+                    p_class_loss={p_class_loss:.4f}, \
+                    re_loss={re_loss:.4f}, \
+                    conf_loss={conf_loss:.4f}, \
+                    time={time:.0f}sec'.format(**data)
+                         )
+
+                writer.add_scalar('Train/loss', loss, iteration)
+                writer.add_scalar('Train/class_loss', class_loss, iteration)
+                writer.add_scalar('Train/p_class_loss', p_class_loss, iteration)
+                writer.add_scalar('Train/re_loss', re_loss, iteration)
+                writer.add_scalar('Train/conf_loss', conf_loss, iteration)
+                writer.add_scalar('Train/learning_rate', learning_rate, iteration)
+                writer.add_scalar('Train/alpha', alpha, iteration)
 
         #################################################################################################
         # Evaluation
         #################################################################################################
         if (iteration + 1) % val_iteration == 0:
-            threshold, mIoU = evaluate(train_loader_for_seg)
+        # if (iteration + 1) % 10 == 0:
+            threshold, mIoU = evaluate(train_loader_for_seg, train_dataset_for_seg.colors, local_rank=args.local_rank)
+            if args.local_rank == 0:
 
-            if best_train_mIoU == -1 or best_train_mIoU < mIoU:
-                best_train_mIoU = mIoU
+                if best_train_mIoU == -1 or best_train_mIoU < mIoU:
+                    best_train_mIoU = mIoU
 
-                save_model_fn()
-                log_func('[i] save model')
+                    save_trcam_model(iter=iteration + 1,
+                                     model=model,
+                                     optimizer=optimizer,
+                                     best_train_mIoU=best_train_mIoU,
+                                     best_threshold=threshold,
+                                     model_path=model_path,
+                                     parallel=the_number_of_gpu > 1)
 
-            data = {
-                'iteration': iteration + 1,
-                'threshold': threshold,
-                'train_mIoU': mIoU,
-                'best_train_mIoU': best_train_mIoU,
-                'time': eval_timer.tok(clear=True),
-            }
-            data_dic['validation'].append(data)
-            write_json(data_path, data_dic)
+                    log_func('[i] save model')
 
-            log_func('[i] \
-                iteration={iteration:,}, \
-                threshold={threshold:.2f}, \
-                train_mIoU={train_mIoU:.2f}%, \
-                best_train_mIoU={best_train_mIoU:.2f}%, \
-                time={time:.0f}sec'.format(**data)
-                     )
+                data = {
+                    'iteration': iteration + 1,
+                    'threshold': threshold,
+                    'train_mIoU': mIoU,
+                    'best_train_mIoU': best_train_mIoU,
+                    'time': eval_timer.tok(clear=True),
+                }
+                data_dic['validation'].append(data)
+                write_json(data_path, data_dic)
 
-            writer.add_scalar('Evaluation/threshold', threshold, iteration)
-            writer.add_scalar('Evaluation/train_mIoU', mIoU, iteration)
-            writer.add_scalar('Evaluation/best_train_mIoU', best_train_mIoU, iteration)
+                log_func('[i] \
+                    iteration={iteration:,}, \
+                    threshold={threshold:.2f}, \
+                    train_mIoU={train_mIoU:.2f}%, \
+                    best_train_mIoU={best_train_mIoU:.2f}%, \
+                    time={time:.0f}sec'.format(**data)
+                         )
+
+                writer.add_scalar('Evaluation/threshold', threshold, iteration)
+                writer.add_scalar('Evaluation/train_mIoU', mIoU, iteration)
+                writer.add_scalar('Evaluation/best_train_mIoU', best_train_mIoU, iteration)
 
     write_json(data_path, data_dic)
     writer.close()
