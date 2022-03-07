@@ -83,6 +83,31 @@ class ViT_classifier(nn.Module):
         self.model = VisionTransformer(config, num_classes=num_classes, zero_head=False, img_size=img_size, vis=True)
         self.model.load_from(np.load("attention_data/ViT-B_16-224.npz"))
 
+    def get_parameter_groups(self, print_fn=print):
+        groups = ([], [], [], [])
+
+        for name, value in self.named_parameters():
+            # pretrained weights
+            if 'transformer' in name:
+                if 'weight' in name:
+                    # print_fn(f'pretrained weights : {name}')
+                    groups[0].append(value)
+                else:
+                    # print_fn(f'pretrained bias : {name}')
+                    groups[1].append(value)
+
+            # scracthed weights
+            else:
+                if 'weight' in name:
+                    if print_fn is not None:
+                        print_fn(f'scratched weights : {name}')
+                    groups[2].append(value)
+                else:
+                    if print_fn is not None:
+                        print_fn(f'scratched bias : {name}')
+                    groups[3].append(value)
+        return groups
+
     def forward(self, x, merge_logits=False):
         logits, att_mat = self.model(x, merge_logits)
 
