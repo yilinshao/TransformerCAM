@@ -62,7 +62,7 @@ parser.add_argument('--lr', default=0.1, type=float)
 parser.add_argument('--wd', default=1e-4, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-parser.add_argument('--image_size', default=448, type=int)
+parser.add_argument('--image_size', default=512, type=int)
 parser.add_argument('--min_image_size', default=320, type=int)
 parser.add_argument('--max_image_size', default=640, type=int)
 
@@ -509,8 +509,8 @@ if __name__ == '__main__':
         #################################################################################################
         # Evaluation
         #################################################################################################
-        # if (iteration + 1) % val_iteration == 0:
-        if (iteration + 1) % 1 == 0:
+        if (iteration + 1) % val_iteration == 0:
+        # if (iteration + 1) % 1 == 0:
             threshold, mIoU = evaluate(train_loader_for_seg, train_dataset_for_seg.colors)
 
             if best_train_mIoU == -1 or best_train_mIoU < mIoU:

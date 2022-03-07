@@ -288,6 +288,7 @@ class VisionTransformer(nn.Module):
             merged_x_per_img = []
             merged_x_per_batch = []
             for bc_i in range(ori_bc):
+                merged_x_per_img = []
                 for tiled_i in range(4):
                     merged_x_per_img.append(tiled_x_list[tiled_i][bc_i][0].unsqueeze(0))
                 merged_x_per_batch.append(torch.cat(merged_x_per_img, dim=0).unsqueeze(0))
