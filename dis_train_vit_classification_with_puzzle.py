@@ -9,6 +9,7 @@ import shutil
 import random
 import argparse
 import numpy as np
+import time
 
 import torch
 import torch.nn as nn
@@ -166,11 +167,11 @@ if __name__ == '__main__':
     valid_dataset_for_seg = VOC_Dataset_For_Testing_CAM(args.data_dir, 'val', test_transform)
 
     train_sampler = DistributedSampler(train_dataset)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True,
-                              drop_last=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
+                              drop_last=True, pin_memory=True, sampler=train_sampler)
 
     train_sampler_for_seg = DistributedSampler(train_dataset_for_seg)
-    train_loader_for_seg = DataLoader(train_dataset_for_seg, batch_size=args.batch_size, num_workers=1, drop_last=True)
+    train_loader_for_seg = DataLoader(train_dataset_for_seg, batch_size=args.batch_size, num_workers=1, drop_last=True, pin_memory=True, sampler=train_sampler_for_seg)
     # valid_loader_for_seg = DataLoader(valid_dataset_for_seg, batch_size=args.batch_size, num_workers=1, drop_last=True)
 
     log_func('[i] mean values is {}'.format(imagenet_mean))
