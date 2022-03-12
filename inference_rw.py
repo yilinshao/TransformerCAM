@@ -63,6 +63,8 @@ parser.add_argument('--beta', default=10, type=int)
 parser.add_argument('--exp_times', default=8, type=int)
 # parser.add_argument('--threshold', default=0.25, type=float)
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 if __name__ == '__main__':
     ###################################################################################
     # Arguments
@@ -159,7 +161,7 @@ if __name__ == '__main__':
 
             cams = cam_dict['cam']
             
-            cam_downsized_values = cams.cuda()
+            cam_downsized_values = torch.from_numpy(cams).cuda()
             rw = propagate_to_edge(cam_downsized_values, edge, beta=args.beta, exp_times=args.exp_times, radius=5)
             
             rw_up = F.interpolate(rw, scale_factor=4, mode='bilinear', align_corners=False)[..., 0, :ori_h, :ori_w]

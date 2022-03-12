@@ -110,6 +110,8 @@ class Calculator_For_mIoU:
         FN_list = [] # under activation
 
         for i in range(self.classes):
+            if self.T[i] == 0:
+                continue
             IoU = self.TP[i]/(self.T[i]+self.P[i]-self.TP[i]+1e-10) * 100
             FP = (self.P[i]-self.TP[i])/(self.T[i] + self.P[i] - self.TP[i] + 1e-10)
             FN = (self.T[i]-self.TP[i])/(self.T[i] + self.P[i] - self.TP[i] + 1e-10)

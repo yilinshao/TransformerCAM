@@ -78,7 +78,7 @@ parser.add_argument('--no-reg', action='store_true',
 parser.add_argument('--is-ablation', type=bool,
                     default=False,
                     help='')
-parser.add_argument('--imagenet-seg-path', type=str, required=True)
+parser.add_argument('--imagenet-seg-path', type=str, default='')
 args = parser.parse_args()
 
 args.checkname = args.method + '_' + args.arc
@@ -170,7 +170,7 @@ def eval_batch(image, labels, evaluator, index):
     image.requires_grad = True
 
     image = image.requires_grad_()
-    predictions = evaluator(image)
+    # predictions = evaluator(image)
 
     # segmentation test for the rollout baseline
     if args.method == 'rollout':
@@ -297,9 +297,9 @@ for batch_idx, (image, _, labels) in enumerate(iterator):
     total_ap += [ap]
     total_f1 += [f1]
     pixAcc = np.float64(1.0) * total_correct / (np.spacing(1, dtype=np.float64) + total_label)
-    IoU = np.float64(1.0) * total_inter[1] / (np.spacing(1, dtype=np.float64) + total_union[1])
-    # mIoU = IoU.mean()
-    mIoU = IoU
+    IoU = np.float64(1.0) * total_inter / (np.spacing(1, dtype=np.float64) + total_union)
+    mIoU = IoU.mean()
+    # mIoU = IoU
     mAp = np.mean(total_ap)
     mF1 = np.mean(total_f1)
     iterator.set_description('pixAcc: %.4f, mIoU: %.4f, mAP: %.4f, mF1: %.4f' % (pixAcc, mIoU, mAp, mF1))
@@ -327,3 +327,13 @@ fh.write("Pixel-wise Accuracy: %2.2f%%\n" % (pixAcc * 100))
 fh.write("Mean AP over %d classes: %.4f\n" % (2, mAp))
 fh.write("Mean F1 over %d classes: %.4f\n" % (2, mF1))
 fh.close()
+
+def get_trained_vit_with_lrp():
+    model_LRP = vit_LRP(pretrained=False).cuda()
+    state_dict = load_state_dict('experiments/models/ViT@train_vit_cls.pth')
+    model_LRP.load_state_dict(state_dict)
+    model_LRP.eval()
+    lrp = LRP(model_LRP)
+
+    return lrp
+
