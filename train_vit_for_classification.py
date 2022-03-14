@@ -40,7 +40,7 @@ from tools.ai.randaugment import *
 from tqdm import tqdm
 from baselines.ViT.ViT_new import vit_base_patch16_224
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2'
 parser = argparse.ArgumentParser()
 
 ###############################################################################
@@ -187,7 +187,7 @@ if __name__ == '__main__':
     log_func()
 
     #
-    val_iteration = len(train_loader)
+    val_iteration = len(train_loader) * torch_dist.get_world_size()
     log_iteration = int(val_iteration * args.print_ratio)
     max_iteration = args.max_epoch * val_iteration
 
