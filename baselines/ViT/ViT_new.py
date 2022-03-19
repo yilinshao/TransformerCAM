@@ -33,6 +33,12 @@ default_cfgs = {
     'vit_large_patch16_224': _cfg(
         url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_large_p16_224-4ee7a4dc.pth',
         mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'vit_base_patch16_384': _cfg(
+        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_base_p16_384-83fb41ba.pth',
+        input_size=(3, 384, 384), mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), crop_pct=1.0),
+    'vit_large_patch16_384': _cfg(
+        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_large_p16_384-b3be5167.pth',
+        input_size=(3, 384, 384), mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), crop_pct=1.0),
 }
 
 class Mlp(nn.Module):
@@ -217,6 +223,16 @@ def _conv_filter(state_dict, patch_size=16):
         out_dict[k] = v
     return out_dict
 
+def vit_small_patch16_224(pretrained=False, **kwargs):
+    model = VisionTransformer(
+        num_classes=20,
+        patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    model.default_cfg = default_cfgs['vit_small_patch16_224']
+    if pretrained:
+        load_pretrained(model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
 
 def vit_base_patch16_224(pretrained=False, **kwargs):
     model = VisionTransformer(
@@ -229,11 +245,40 @@ def vit_base_patch16_224(pretrained=False, **kwargs):
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter)
     return model
 
+
 def vit_large_patch16_224(pretrained=False, **kwargs):
     model = VisionTransformer(
+        num_classes=20,
         patch_size=16, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     model.default_cfg = default_cfgs['vit_large_patch16_224']
     if pretrained:
         load_pretrained(model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
     return model
+
+
+def vit_base_patch16_384(pretrained=False, **kwargs):
+    model = VisionTransformer(
+        num_classes=20,
+        img_size=384,
+        patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    model.default_cfg = default_cfgs['vit_base_patch16_384']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter)
+    return model
+
+
+def vit_large_patch16_384(pretrained=False, **kwargs):
+    model = VisionTransformer(
+        num_classes=20,
+        img_size=384,
+        patch_size=16, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    model.default_cfg = default_cfgs['vit_large_patch16_384']
+    if pretrained:
+        load_pretrained(model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+

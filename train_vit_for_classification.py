@@ -38,9 +38,9 @@ from tools.ai.evaluate_utils import *
 from tools.ai.augment_utils import *
 from tools.ai.randaugment import *
 from tqdm import tqdm
-from baselines.ViT.ViT_new import vit_base_patch16_224
+from baselines.ViT.ViT_new import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
 parser = argparse.ArgumentParser()
 
 ###############################################################################
@@ -66,9 +66,13 @@ parser.add_argument('--lr', default=0.1, type=float)
 parser.add_argument('--wd', default=1e-4, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-parser.add_argument('--image_size', default=224, type=int)
-parser.add_argument('--min_image_size', default=180, type=int)
-parser.add_argument('--max_image_size', default=260, type=int)
+# parser.add_argument('--image_size', default=224, type=int)
+# parser.add_argument('--min_image_size', default=180, type=int)
+# parser.add_argument('--max_image_size', default=260, type=int)
+
+parser.add_argument('--image_size', default=384, type=int)
+parser.add_argument('--min_image_size', default=320, type=int)
+parser.add_argument('--max_image_size', default=480, type=int)
 
 parser.add_argument('--print_ratio', default=0.1, type=float)
 
@@ -198,7 +202,7 @@ if __name__ == '__main__':
     ###################################################################################
     # Network
     ###################################################################################
-    model = vit_base_patch16_224(pretrained=True)
+    model = vit_large_patch16_384(pretrained=True)
 
     model = model.cuda()
     model.train()
@@ -349,15 +353,27 @@ if __name__ == '__main__':
         if (iteration + 1) % val_iteration == 0:
         # if (iteration + 1) % 10 == 0:
             acc = evaluate(val_loader)
+
+            epoch_num = (iteration + 1) // val_iteration
+            epoch_path = model_path.split('.pth')[0] + '_epoch_{}.pth'.format(epoch_num)
+
+            torch.save({'iter': iter,
+                        'state_dict': model.module.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'acc': acc}, epoch_path)
+
+            log_func('[i] save epoch model')
+
             if args.local_rank == 0:
                 if best_acc == -1 or best_acc < acc:
                     best_acc = acc
+                    best_path = model_path.split('.pth')[0] + '_best.pth'
                     torch.save({'iter': iter,
                                 'state_dict': model.module.state_dict(),
                                 'optimizer': optimizer.state_dict(),
-                                'best_acc': best_acc}, model_path)
+                                'best_acc': best_acc}, best_path)
 
-                    log_func('[i] save model')
+                    log_func('[i] save best model')
 
                 data = {
                     'iteration': iteration + 1,

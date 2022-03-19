@@ -36,7 +36,9 @@ from tools.ai.evaluate_utils import *
 from tools.ai.augment_utils import *
 from tools.ai.randaugment import *
 
-from baselines.ViT.ViT_LRP import vit_base_patch16_224 as vit_LRP
+# from baselines.ViT.ViT_LRP import vit_base_patch16_224 as vit_LRP
+from baselines.ViT.ViT_LRP import vit_large_patch16_384 as vit_LRP
+
 from baselines.ViT.helpers import *
 from baselines.ViT.ViT_explanation_generator import Baselines, LRP
 
@@ -54,7 +56,6 @@ parser.add_argument('--data_dir', default='../VOCtrainval_11-May-2012/', type=st
 ###############################################################################
 # Network
 ###############################################################################
-parser.add_argument('--architecture', default='resnet50', type=str)
 parser.add_argument('--mode', default='normal', type=str)
 
 ###############################################################################
@@ -62,16 +63,20 @@ parser.add_argument('--mode', default='normal', type=str)
 ###############################################################################
 parser.add_argument('--tag', default='', type=str)
 parser.add_argument('--domain', default='train', type=str)
+parser.add_argument('--image_size', required=True, type=int)
 
 parser.add_argument('--scales', default='0.5,1.0,1.5,2.0', type=str)
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 
-def get_trained_vit_with_lrp():
+def get_trained_vit_with_lrp(model_name):
     model_LRP = vit_LRP(pretrained=False).cuda()
-    state_dict = load_state_dict('experiments/models/ViT@train_vit_cls.pth')
+
+    state_dict_path = 'experiments/models/{}.pth'.format(model_name)
+    state_dict = load_state_dict(state_dict_path)
     model_LRP.load_state_dict(state_dict)
+
     model_LRP.eval()
     lrp = LRP(model_LRP)
 
@@ -84,6 +89,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     experiment_name = args.tag
+
+    image_size = args.image_size
 
     if 'train' in args.domain:
         experiment_name += '@train'
@@ -106,9 +113,9 @@ if __name__ == '__main__':
     imagenet_std = [0.229, 0.224, 0.225]
 
     image_transform = transforms.Compose([
-        RandomResize(224, 224),
+        RandomResize(image_size, image_size),
         Normalize(imagenet_mean, imagenet_std),
-        Top_Left_Crop(224),
+        Top_Left_Crop(image_size),
     ])
 
     # for mIoU
@@ -120,7 +127,7 @@ if __name__ == '__main__':
     ###################################################################################
     # Network
     ###################################################################################
-    model = get_trained_vit_with_lrp()
+    model = get_trained_vit_with_lrp(model_name=args.tag)
 
     # log_func('[i] Architecture is {}'.format(args.architecture))
     # log_func('[i] Total Params: %.2fM' % (calculate_parameters(model)))
@@ -148,11 +155,13 @@ if __name__ == '__main__':
         # preprocessing
         image = copy.deepcopy(ori_image)
 
+        embedded_image_size = int(image_size / 16)
+
         w, h = image.size
         if w < h:
-            scale = 224 / h
+            scale = image_size / h
         else:
-            scale = 224 / w
+            scale = image_size / w
 
         resized_w = int(round(w * scale))
         resized_h = int(round(h * scale))
@@ -175,7 +184,7 @@ if __name__ == '__main__':
         image_Res = model.generate_LRP(image.cuda(),
                                        index=index,
                                          start_layer=0,
-                                         method="transformer_attribution").reshape(1, 1, 14, 14)
+                                         method="transformer_attribution").reshape(1, 1, embedded_image_size, embedded_image_size)
         image_Res = torch.nn.functional.interpolate(image_Res, scale_factor=16, mode='bilinear').cuda()
         ori_image_Res = image_Res[..., : resized_h, : resized_w]
         ori_image_Res = (ori_image_Res - ori_image_Res.min()) / (ori_image_Res.max() - ori_image_Res.min())
@@ -183,7 +192,7 @@ if __name__ == '__main__':
         filpped_image_Res = model.generate_LRP(flipped_image.cuda(),
                                                index=index,
                                          start_layer=1,
-                                         method="transformer_attribution").reshape(1, 1, 14, 14)
+                                         method="transformer_attribution").reshape(1, 1, embedded_image_size, embedded_image_size)
 
         filpped_image_Res = torch.nn.functional.interpolate(filpped_image_Res.flip(-1), scale_factor=16, mode='bilinear').cuda()
         ori_flipped_image_Res = filpped_image_Res[..., : resized_h, : resized_w]
