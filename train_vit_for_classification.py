@@ -40,7 +40,7 @@ from tools.ai.randaugment import *
 from tqdm import tqdm
 from baselines.ViT.ViT_new import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1, 2, 3'
 parser = argparse.ArgumentParser()
 
 ###############################################################################
@@ -101,6 +101,14 @@ parser.add_argument('--alpha_schedule', default=0.50, type=float)
 
 parser.add_argument('--local_rank', default=0, type=int)
 parser.add_argument('--resume', default=False, type=bool)
+
+def adjust_learning_rate(optimizer, base_lr, max_iters,
+        cur_iters, power=0.9, nbb_mult=10):
+    lr = base_lr*((1-float(cur_iters)/max_iters)**(power))
+    optimizer.param_groups[0]['lr'] = lr
+    if len(optimizer.param_groups) == 2:
+        optimizer.param_groups[1]['lr'] = lr * nbb_mult
+    return lr
 
 if __name__ == '__main__':
     ###################################################################################
@@ -202,7 +210,7 @@ if __name__ == '__main__':
     ###################################################################################
     # Network
     ###################################################################################
-    model = vit_large_patch16_384(pretrained=True)
+    model = vit_base_patch16_384(pretrained=True)
 
     model = model.cuda()
     model.train()
@@ -224,10 +232,14 @@ if __name__ == '__main__':
     ###################################################################################
     class_loss_fn = nn.MultiLabelSoftMarginLoss(reduction='none').cuda()
 
-    optimizer = torch.optim.SGD(model.parameters(),
-                                lr=args.lr,
-                                momentum=0.9,
-                                weight_decay=args.wd)
+    params = [{'params': list(dict(model.named_parameters()).values()), 'lr': args.lr, 'weight_decay': args.wd}]
+
+    optimizer = PolyOptimizer(params, lr=args.lr, momentum=0.9, weight_decay=args.wd, max_step=max_iteration)
+
+    # optimizer = torch.optim.SGD(model.parameters(),
+    #                             lr=args.lr,
+    #                             momentum=0.9,
+    #                             weight_decay=args.wd)
 
     #################################################################################################
     # Train
@@ -314,6 +326,8 @@ if __name__ == '__main__':
         loss.backward()
         optimizer.step()
 
+        # adjust_learning_rate(optimizer, args.lr, max_iteration, iteration)
+
         if args.local_rank == 0:
             #  reduce losses
             train_meter.add({'loss': reduced_loss.item()})
@@ -354,17 +368,22 @@ if __name__ == '__main__':
         # if (iteration + 1) % 10 == 0:
             acc = evaluate(val_loader)
 
-            epoch_num = (iteration + 1) // val_iteration
-            epoch_path = model_path.split('.pth')[0] + '_epoch_{}.pth'.format(epoch_num)
-
-            torch.save({'iter': iter,
-                        'state_dict': model.module.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'acc': acc}, epoch_path)
-
-            log_func('[i] save epoch model')
-
             if args.local_rank == 0:
+                ##########################
+                # 每10个epoch保存
+                ##########################
+
+                if (iteration + 1) % (10 * val_iteration) == 0:
+                    epoch_num = (iteration + 1) // val_iteration
+                    epoch_path = model_path.split('.pth')[0] + '_epoch_{}.pth'.format(epoch_num)
+
+                    torch.save({'iter': iter,
+                                'state_dict': model.module.state_dict(),
+                                'optimizer': optimizer.state_dict(),
+                                'acc': acc}, epoch_path)
+
+                    log_func('[i] save epoch model')
+
                 if best_acc == -1 or best_acc < acc:
                     best_acc = acc
                     best_path = model_path.split('.pth')[0] + '_best.pth'

@@ -13,10 +13,14 @@ from core.aff_utils import *
 
 from tools.ai.augment_utils import *
 from tools.ai.torch_utils import one_hot_embedding
+from tools.ai.demo_utils import *
 
 from tools.general.xml_utils import read_xml
 from tools.general.json_utils import read_json
 from tools.dataset.voc_utils import get_color_map_dic
+from tools.ai.demo_utils import *
+
+import matplotlib.pyplot as plt
 
 class Iterator:
     def __init__(self, loader):
@@ -120,7 +124,7 @@ class VOC_Dataset_For_Segmentation(VOC_Dataset):
 
             image = output_dic['image']
             mask = output_dic['mask']
-        
+        decode_from_colormap
         return image, mask
 
 class VOC_Dataset_For_Evaluation(VOC_Dataset):
@@ -145,7 +149,7 @@ class VOC_Dataset_For_Evaluation(VOC_Dataset):
 
 class VOC_Dataset_For_WSSS(VOC_Dataset):
     def __init__(self, root_dir, domain, pred_dir, transform=None):
-        super().__init__(root_dir, domain, with_id=True)
+        super().__init__(root_dir, domain, with_id=True, with_mask=True)
         self.pred_dir = pred_dir
         self.transform = transform
 
@@ -153,16 +157,42 @@ class VOC_Dataset_For_WSSS(VOC_Dataset):
         self.colors = np.asarray([cmap_dic[class_name] for class_name in class_names])
     
     def __getitem__(self, index):
-        image, image_id = super().__getitem__(index)
-        mask = Image.open(self.pred_dir + image_id + '.png')
-        
+        image, image_id, gt_mask = super().__getitem__(index)
+
+        # 真实标签
+        # ori_image = image
+        # gt_mask = gt_mask
+
+        # 伪标签
+        # mask = Image.open(self.pred_dir + image_id + '.png')
+        mask = gt_mask
         if self.transform is not None:
             input_dic = {'image':image, 'mask':mask}
             output_dic = self.transform(input_dic)
 
             image = output_dic['image']
             mask = output_dic['mask']
-        
+
+            # 对真实标签进行transform
+            # gt_input_dic = {'image':ori_image, 'mask':gt_mask}
+            # gt_output_dic = self.transform(gt_input_dic)
+            # gt_mask = gt_output_dic['mask']
+
+        # 对输入和标签可视化
+        # imagenet_mean = [0.485, 0.456, 0.406]
+        # imagenet_std = [0.229, 0.224, 0.225]
+        #
+        # image_vis = denormalize(image, imagenet_mean, imagenet_std)
+        # mask_vis = decode_from_colormap(mask, self.colors)
+        # gt_mask_vis = decode_from_colormap(gt_mask, self.colors)
+        #
+        # plt.imshow(image_vis)
+        # plt.show()
+        # plt.imshow(mask_vis)
+        # plt.show()
+        # plt.imshow(gt_mask_vis)
+        # plt.show()
+
         return image, mask
 
 class VOC_Dataset_For_Testing_CAM(VOC_Dataset):

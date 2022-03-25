@@ -99,6 +99,8 @@ class Calculator_For_mIoU:
 
         for i in range(self.classes):
             self.P[i] += np.sum((pred_mask==i)*obj_mask)
+            self.N[i] += np.sum((pred_mask!=i)*obj_mask)
+
             self.T[i] += np.sum((gt_mask==i)*obj_mask)
             self.TP[i] += np.sum((gt_mask==i)*correct_mask)
 
@@ -106,6 +108,8 @@ class Calculator_For_mIoU:
         IoU_dic = {}
         IoU_list = []
 
+        TP_list = []
+        TN_list = []
         FP_list = [] # over activation
         FN_list = [] # under activation
 
@@ -113,35 +117,44 @@ class Calculator_For_mIoU:
             if self.T[i] == 0:
                 continue
             IoU = self.TP[i]/(self.T[i]+self.P[i]-self.TP[i]+1e-10) * 100
-            FP = (self.P[i]-self.TP[i])/(self.T[i] + self.P[i] - self.TP[i] + 1e-10)
-            FN = (self.T[i]-self.TP[i])/(self.T[i] + self.P[i] - self.TP[i] + 1e-10)
+            # FP = (self.P[i]-self.TP[i])/(self.T[i] + self.P[i] - self.TP[i] + 1e-10)
+            # FN = (self.T[i]-self.TP[i])/(self.T[i] + self.P[i] - self.TP[i] + 1e-10)
 
             IoU_dic[self.class_names[i]] = IoU
 
             IoU_list.append(IoU)
-            FP_list.append(FP)
-            FN_list.append(FN)
+            TP_list.append(self.TP[i])
+            TN_list.append(self.N[i]-(self.T[i]-self.TP[i]))
+            FP_list.append(self.P[i]-self.TP[i])
+            FN_list.append(self.T[i]-self.TP[i])
+
         
         mIoU = np.mean(np.asarray(IoU_list))
         mIoU_foreground = np.mean(np.asarray(IoU_list)[1:])
 
-        FP = np.mean(np.asarray(FP_list))
-        FN = np.mean(np.asarray(FN_list))
-        
+        # FP = np.mean(np.asarray(FP_list))
+        # FN = np.mean(np.asarray(FN_list))
+        TP = np.sum(np.asarray(TP_list))
+        TN = np.sum(np.asarray(TN_list))
+        FP = np.sum(np.asarray(FP_list))
+        FN = np.sum(np.asarray(FN_list))
+
         if clear:
             self.clear()
         
         if detail:
-            return mIoU, mIoU_foreground, IoU_dic, FP, FN
+            return mIoU, mIoU_foreground, IoU_dic, TP, TN, FP, FN
         else:
             return mIoU, mIoU_foreground
 
     def clear(self):
+        self.N = []
         self.TP = []
         self.P = []
         self.T = []
         
         for _ in range(self.classes):
+            self.N.append(0)
             self.TP.append(0)
             self.P.append(0)
             self.T.append(0)

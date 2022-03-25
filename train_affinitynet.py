@@ -58,9 +58,13 @@ parser.add_argument('--lr', default=0.1, type=float)
 parser.add_argument('--wd', default=1e-4, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-parser.add_argument('--image_size', default=512, type=int)
+# parser.add_argument('--image_size', default=512, type=int)
+# parser.add_argument('--min_image_size', default=320, type=int)
+# parser.add_argument('--max_image_size', default=640, type=int)
+
+parser.add_argument('--image_size', default=384, type=int)
 parser.add_argument('--min_image_size', default=320, type=int)
-parser.add_argument('--max_image_size', default=640, type=int)
+parser.add_argument('--max_image_size', default=480, type=int)
 
 parser.add_argument('--print_ratio', default=0.1, type=float)
 
@@ -114,7 +118,7 @@ if __name__ == '__main__':
     
     path_index = PathIndex(radius=10, default_size=(args.image_size // 4, args.image_size // 4))
 
-    train_dataset = VOC_Dataset_For_Affinity(args.data_dir, 'train', path_index=path_index, label_dir=args.pred_dir + '{}/'.format(args.label_name), transform=train_transform)
+    train_dataset = VOC_Dataset_For_Affinity(args.data_dir, 'val', path_index=path_index, label_dir=args.pred_dir + '{}/'.format(args.label_name), transform=train_transform)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, drop_last=True)
     
     log_func('[i] mean values is {}'.format(imagenet_mean))

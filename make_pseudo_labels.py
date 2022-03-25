@@ -232,6 +232,7 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
     cams = cams.transpose((1, 2, 0))
     best_th = None
     if from_mask:
+        print('Use mask to generate labels')
         assert mask is not None
         thresholds = list(np.arange(0.10, 0.70, 0.05))
         meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
@@ -255,6 +256,8 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
         return best_th
 
     elif from_grad:
+        print('Use gradient to generate labels')
+
         # 得到每一类的threshold
         thresholds_for_classes = []
         for i in range(0, cams.shape[-1]):
@@ -297,6 +300,7 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
         return pred_mask
 
     elif from_mean:
+        print('Use mean value to generate labels')
 
         thresholds = [np.mean(cams)]
         meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
@@ -310,15 +314,15 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
                 pred_masks[pred_masks == i] = key
 
             meter_dic[th].add(pred_masks, mask)
-
-        for th in thresholds:
-            mIoU, mIoU_foreground = meter_dic[th].get(clear=True)
-            if best_mIoU < mIoU:
-                best_th = th
-                best_mIoU = mIoU
-
-        print(best_mIoU)
-        return best_th
+        #
+        # for th in thresholds:
+        #     mIoU, mIoU_foreground = meter_dic[th].get(clear=True)
+        #     if best_mIoU < mIoU:
+        #         best_th = th
+        #         best_mIoU = mIoU
+        #
+        # print(best_mIoU)
+        return thresholds[0]
 
     else:
         raise ValueError("Unsupported mode")
@@ -369,7 +373,7 @@ if __name__ == '__main__':
                                            n_labels=keys.shape[0])
 
             else:
-                args.threshold = get_threshold(cams, gt_mask, keys, from_grad=False, from_mask=True, from_mean=False)
+                args.threshold = get_threshold(cams, gt_mask, keys, from_grad=False, from_mask=False, from_mean=True)
                 cams = np.pad(cams, ((1, 0), (0, 0), (0, 0)), mode='constant', constant_values=args.threshold)
 
                 cams = np.argmax(cams, axis=0)
@@ -381,9 +385,11 @@ if __name__ == '__main__':
 
 
             matrix.add(conf, gt_mask)
-            mIoU, _ = matrix.get(clear=False)
-            print(mIoU)
-            
+            mIoU, mIoU_foreground, IoU_dic, TP, TN, FP, FN = matrix.get(detail=True, clear=False)
+            print('mIoU:{}, mIoU_foreground:{}, {}, TP:{}, TN:{}, FP:{}, FN:{}'.format(mIoU,
+                                                                                       mIoU_foreground,
+                                                                                       IoU_dic, TP, TN, FP, FN))
+
             # cv2.imshow('image', np.asarray(ori_image))
             # cv2.imshow('predict', decode_from_colormap(conf, dataset.colors))
             # cv2.waitKey(0)

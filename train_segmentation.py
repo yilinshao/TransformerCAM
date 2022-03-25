@@ -34,6 +34,8 @@ from tools.ai.evaluate_utils import *
 from tools.ai.augment_utils import *
 from tools.ai.randaugment import *
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
+
 parser = argparse.ArgumentParser()
 
 ###############################################################################
@@ -61,9 +63,13 @@ parser.add_argument('--lr', default=0.007, type=float)
 parser.add_argument('--wd', default=4e-5, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-parser.add_argument('--image_size', default=512, type=int)
-parser.add_argument('--min_image_size', default=256, type=int)
-parser.add_argument('--max_image_size', default=1024, type=int)
+# parser.add_argument('--image_size', default=512, type=int)
+# parser.add_argument('--min_image_size', default=256, type=int)
+# parser.add_argument('--max_image_size', default=1024, type=int)
+
+parser.add_argument('--image_size', default=384, type=int)
+parser.add_argument('--min_image_size', default=320, type=int)
+parser.add_argument('--max_image_size', default=480, type=int)
 
 parser.add_argument('--print_ratio', default=0.1, type=float)
 
@@ -126,7 +132,9 @@ if __name__ == '__main__':
     meta_dic = read_json('./data/VOC_2012.json')
     class_names = np.asarray(meta_dic['class_names'])
     
-    train_dataset = VOC_Dataset_For_WSSS(args.data_dir, 'train_aug', pred_dir, train_transform)
+    # train_dataset = VOC_Dataset_For_WSSS(args.data_dir, 'val', pred_dir, train_transform)
+    train_dataset = VOC_Dataset_For_Segmentation(args.data_dir, 'train', test_transform)
+
     valid_dataset = VOC_Dataset_For_Segmentation(args.data_dir, 'val', test_transform)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, drop_last=True)
@@ -249,7 +257,12 @@ if __name__ == '__main__':
                 
                 for batch_index in range(images.size()[0]):
                     pred_mask = get_numpy_from_tensor(predictions[batch_index])
+
+                    # plt.imshow(decode_from_colormap(pred_mask, train_dataset.colors))
+                    # plt.show()
                     gt_mask = get_numpy_from_tensor(labels[batch_index])
+                    # plt.imshow(decode_from_colormap(gt_mask, train_dataset.colors))
+                    # plt.show()
 
                     h, w = pred_mask.shape
                     gt_mask = cv2.resize(gt_mask, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -262,12 +275,15 @@ if __name__ == '__main__':
         print(' ')
         model.train()
         
-        return meter.get(clear=True)
+        return meter.get(clear=True, detail=True)
     
     writer = SummaryWriter(tensorboard_dir)
     train_iterator = Iterator(train_loader)
 
     torch.autograd.set_detect_anomaly(True)
+
+    # checkpoint_dict = torch.load(model_path.split('.pth')[0] + '_best.pth')
+    # model.module.load_state_dict(checkpoint_dict)
 
     for iteration in range(max_iteration):
         images, labels = train_iterator.get()
@@ -328,13 +344,28 @@ if __name__ == '__main__':
         # Evaluation
         #################################################################################################
         if (iteration + 1) % val_iteration == 0:
-            mIoU, _ = evaluate(valid_loader)
+        # if (iteration + 1) % 1 == 0:
+
+            mIoU, mIoU_foreground, IoU_dic, TP, TN, FP, FN = evaluate(valid_loader)
+            print('mIoU:{}, mIoU_foreground:{}, {}, TP:{}, TN:{}, FP:{}, FN:{}'.format(mIoU,
+                                                                                       mIoU_foreground,
+                                                                                       IoU_dic, TP, TN, FP, FN))
+
+            if (iteration + 1) % (10 * val_iteration) == 0:
+                epoch_num = (iteration + 1) // val_iteration
+                epoch_path = model_path.split('.pth')[0] + '_epoch_{}.pth'.format(epoch_num)
+
+                torch.save(model.module.state_dict(), epoch_path)
+
+                log_func('[i] save epoch model')
 
             if best_valid_mIoU == -1 or best_valid_mIoU < mIoU:
                 best_valid_mIoU = mIoU
+                best_path = model_path.split('.pth')[0] + '_best.pth'
 
-                save_model_fn()
-                log_func('[i] save model')
+                torch.save(model.module.state_dict(), best_path)
+
+                log_func('[i] save best model')
 
             data = {
                 'iteration' : iteration + 1,

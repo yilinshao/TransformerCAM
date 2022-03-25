@@ -37,7 +37,9 @@ from tools.ai.augment_utils import *
 from tools.ai.randaugment import *
 
 # from baselines.ViT.ViT_LRP import vit_base_patch16_224 as vit_LRP
-from baselines.ViT.ViT_LRP import vit_large_patch16_384 as vit_LRP
+# from baselines.ViT.ViT_LRP import vit_large_patch16_224 as vit_LRP
+from baselines.ViT.ViT_LRP import vit_base_patch16_384 as vit_LRP
+# from baselines.ViT.ViT_LRP import vit_large_patch16_384 as vit_LRP
 
 from baselines.ViT.helpers import *
 from baselines.ViT.ViT_explanation_generator import Baselines, LRP
@@ -99,6 +101,9 @@ if __name__ == '__main__':
 
     experiment_name += '@scale=%s' % args.scales
 
+    experiment_vis_name = experiment_name + '@vis'
+    vis_pred_dir = create_directory(f'./experiments/predictions/{experiment_vis_name}/')
+
     pred_dir = create_directory(f'./experiments/predictions/{experiment_name}/')
 
     model_path = './experiments/models/' + f'{args.tag}.pth'
@@ -109,8 +114,13 @@ if __name__ == '__main__':
     ###################################################################################
     # Transform, Dataset, DataLoader
     ###################################################################################
+
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     imagenet_mean = [0.485, 0.456, 0.406]
     imagenet_std = [0.229, 0.224, 0.225]
+
+    # imagenet_mean = [0.4, 0.4, 0.4]
+    # imagenet_std = [0.3, 0.3, 0.3]
 
     image_transform = transforms.Compose([
         RandomResize(image_size, image_size),
@@ -202,14 +212,16 @@ if __name__ == '__main__':
 
         return cams.squeeze(0)
 
-    show_cam = True
+    show_cam = False
+    show_cams_on_one_map = False
     length = len(dataset)
     for step, (ori_image, image_id, label, gt_mask) in enumerate(dataset):
         ori_w, ori_h = ori_image.size
 
         npy_path = pred_dir + image_id + '.npy'
-        # if os.path.isfile(npy_path):
-        #     continue
+        img_path = vis_pred_dir + image_id + '.jpg'
+        if os.path.isfile(npy_path) and show_cam is not True:
+            continue
 
         strided_size = get_strided_size((ori_h, ori_w), 4)
         strided_up_size = get_strided_up_size((ori_h, ori_w), 16)
@@ -231,14 +243,32 @@ if __name__ == '__main__':
             orig_size_cams = [resize_for_tensors(cams.unsqueeze(0), (ori_h, ori_w))[0] for cams in cams_list]
             orig_size_img = np.asarray(ori_image).astype(np.uint8)
 
-            for ori_size_cam in orig_size_cams:
-                colored_cam = (ori_size_cam[0].detach().cpu().numpy() * 255).astype(np.uint8)
+            if show_cams_on_one_map:
+                orig_size_cams = [cam.detach().cpu().numpy() for cam in orig_size_cams]
+                orig_size_cams = np.stack(orig_size_cams)
+                orig_size_cams = np.mean(orig_size_cams, axis=0)
+
+                colored_cam = (orig_size_cams[0] * 255).astype(np.uint8)
 
                 colored_cam = colormap(colored_cam)
                 fused_cam_ori_img = cv2.addWeighted(orig_size_img[..., ::-1], 0.5, colored_cam, 0.5, 0)[..., ::-1]
                 fused_cam_ori_img = fused_cam_ori_img.astype(np.float32) / 255.
                 plt.imshow(fused_cam_ori_img)
-                plt.show()
+                # plt.show()
+                if len(cams_list) > 1:
+                    img_path = img_path.split(image_id)[0] + 'multi-label-' + image_id + '.jpg'
+                plt.savefig(img_path, dpi=200)
+            else:
+                for ori_size_cam in orig_size_cams:
+                    colored_cam = (ori_size_cam[0].detach().cpu().numpy() * 255).astype(np.uint8)
+
+                    colored_cam = colormap(colored_cam)
+                    fused_cam_ori_img = cv2.addWeighted(orig_size_img[..., ::-1], 0.5, colored_cam, 0.5, 0)[..., ::-1]
+                    fused_cam_ori_img = fused_cam_ori_img.astype(np.float32) / 255.
+                    plt.imshow(fused_cam_ori_img)
+                    # plt.show()
+
+                    plt.savefig(img_path, dpi=200)
         # save cams
         keys = np.pad(keys + 1, (1, 0), mode='constant')
         if show_cam is not True:

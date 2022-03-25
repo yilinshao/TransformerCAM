@@ -55,6 +55,7 @@ parser.add_argument('--architecture', default='resnet50', type=str)
 # Inference parameters
 ###############################################################################
 parser.add_argument('--model_name', default='', type=str)
+parser.add_argument('--image_size', default=384, type=int)
 
 parser.add_argument('--cam_dir', default='', type=str)
 parser.add_argument('--domain', default='train', type=str)
@@ -106,8 +107,10 @@ if __name__ == '__main__':
     ###################################################################################
     # Network
     ###################################################################################
-    path_index = PathIndex(radius=10, default_size=(512 // 4, 512 // 4))
+    # path_index = PathIndex(radius=10, default_size=(512 // 4, 512 // 4))
+    path_index = PathIndex(radius=10, default_size=(args.image_size // 4, args.image_size // 4))
     model = AffinityNet(args.architecture, path_index)
+
 
     model = model.cuda()
     model.eval()

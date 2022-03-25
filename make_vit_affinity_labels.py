@@ -60,7 +60,10 @@ parser.add_argument('--domain', default='train', type=str)
 parser.add_argument('--fg_threshold', default=0.30, type=float)
 parser.add_argument('--bg_threshold', default=0.05, type=float)
 
-def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
+parser.add_argument('--calculate_mIoU', default=True, type=bool)
+
+
+def get_threshold(cams, mask, keys, from_mask, from_mean, calculate_miou):
     best_mIoU = -1
     cams = cams.transpose((1, 2, 0))
     best_th = None
@@ -84,38 +87,20 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
             if best_mIoU < mIoU:
                 best_th = th
                 best_mIoU = mIoU
-        print(best_mIoU)
-        return min(best_th + 0.1, 0.9), max(best_th - 0.1, 0.1)
+        # print(best_mIoU)
 
-    elif from_grad:
-        # 得到每一类的threshold
-        thresholds = []
-        fused_cams = np.sum(cams, axis=-1, keepdims=True) / cams.shape[-1]
-        cam_grad = Sobel(fused_cams, -1, 1, 1, ksize=3)
-        max_grad_idx = np.argmax(cam_grad)
-        thresholds.append(cam_grad[max_grad_idx])
+        ########################
+        # 用于计算为标签mIoU时
+        ########################
+        if calculate_miou:
+            return best_th, best_th
 
-        meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
+        ########################
+        # 用于计算前背景阈值的时候
+        ########################
+        else:
+            return min(best_th + 0.1, 0.9), max(best_th - 0.1, 0.1)
 
-        # 预测结果
-        for th in thresholds:
-            bg = np.ones_like(cams[:, :, 0]) * th
-            pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cams], axis=-1), axis=-1)
-
-            assert keys.shape[0] == cams.shape[-1] + 1
-            for i, key in enumerate(keys):
-                pred_masks[pred_masks == i] = key
-
-            meter_dic[th].add(pred_masks, mask)
-
-        for th in thresholds:
-            mIoU, mIoU_foreground = meter_dic[th].get(clear=True)
-            if best_mIoU < mIoU:
-                best_th = th
-                best_mIoU = mIoU
-
-        print(best_mIoU)
-        return min(best_th + 0.1, 0.9), max(best_th - 0.1, 0.1)
 
     elif from_mean:
 
@@ -132,14 +117,26 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
 
             meter_dic[th].add(pred_masks, mask)
 
-        for th in thresholds:
-            mIoU, mIoU_foreground = meter_dic[th].get(clear=True)
-            if best_mIoU < mIoU:
-                best_th = th
-                best_mIoU = mIoU
+        # for th in thresholds:
+        #     mIoU, mIoU_foreground = meter_dic[th].get(clear=True)
+        #     if best_mIoU < mIoU:
+        #         best_th = th
+        #         best_mIoU = mIoU
+        #
+        # print(best_mIoU)
 
-        print(best_mIoU)
-        return min(best_th + 0.1, 0.9), max(best_th - 0.1, 0.1)
+        ########################
+        # 用于计算为标签mIoU时
+        ########################
+        if calculate_miou:
+            return thresholds[0], thresholds[0]
+
+        ########################
+        # 用于计算前背景阈值的时候
+        ########################
+        else:
+            return min(thresholds[0] + 0.1, 0.9), max(thresholds[0] - 0.1, 0.1)
+
 
     else:
         raise ValueError("Unsupported mode")
@@ -173,7 +170,7 @@ if __name__ == '__main__':
     # Convert
     #################################################################################################
     eval_timer = Timer()
-
+    matrix = Calculator_For_mIoU('./data/VOC_2012.json')
     length = len(dataset)
     for step, (ori_image, image_id, _, mask) in enumerate(dataset):
         png_path = aff_dir + image_id + '.png'
@@ -192,7 +189,10 @@ if __name__ == '__main__':
         keys = cam_dict['keys']
         cams = cam_dict['hr_cam']
 
-        args.fg_threshold, args.bg_threshold = get_threshold(cams, mask, keys, from_mask=True)
+        args.fg_threshold, args.bg_threshold = get_threshold(cams, mask, keys,
+                                                             from_mask=False,
+                                                             from_mean=True,
+                                                             calculate_miou=args.calculate_mIoU)
         # 1. find confident fg & bg
         fg_cam = np.pad(cams, ((1, 0), (0, 0), (0, 0)), mode='constant', constant_values=args.fg_threshold)
         fg_cam = np.argmax(fg_cam, axis=0)
@@ -217,7 +217,19 @@ if __name__ == '__main__':
         # plt.imshow(conf)
         # plt.show()
 
-        imageio.imwrite(png_path, conf.astype(np.uint8))
+        ####################################################
+        # 计算整个数据集的mIoU，需要将前景阈值和背景阈值设置成mean
+        ####################################################
+        if args.calculate_mIoU:
+            pred_mask = fg_conf
+            matrix.add(conf, mask)
+            mIoU, mIoU_foreground, IoU_dic, TP, TN, FP, FN = matrix.get(detail=True, clear=False)
+            print('mIoU:{}, mIoU_foreground:{}, {}, TP:{}, TN:{}, FP:{}, FN:{}'.format(mIoU,
+                                                                                       mIoU_foreground,
+                                                                                       IoU_dic, TP, TN, FP, FN))
+
+        else:
+            imageio.imwrite(png_path, conf.astype(np.uint8))
 
         sys.stdout.write('\r# Convert [{}/{}] = {:.2f}%, ({}, {})'.format(step + 1, length, (step + 1) / length * 100,
                                                                           (ori_h, ori_w), conf.shape))

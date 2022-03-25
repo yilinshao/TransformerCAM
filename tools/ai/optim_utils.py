@@ -3,6 +3,7 @@ from .torch_utils import *
 
 class PolyOptimizer(torch.optim.SGD):
     def __init__(self, params, lr, weight_decay, max_step, momentum=0.9, nesterov=False):
+        # super().__init__(params, lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov)
         super().__init__(params, lr, weight_decay, nesterov=nesterov)
 
         self.global_step = 0
