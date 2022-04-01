@@ -64,7 +64,7 @@ parser.add_argument('--beta', default=10, type=int)
 parser.add_argument('--exp_times', default=8, type=int)
 # parser.add_argument('--threshold', default=0.25, type=float)
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 if __name__ == '__main__':
     ###################################################################################
@@ -142,8 +142,8 @@ if __name__ == '__main__':
             ori_w, ori_h = ori_image.size
 
             npy_path = pred_dir + image_id + '.npy'
-            if os.path.isfile(npy_path):
-                continue
+            # if os.path.isfile(npy_path):
+            #     continue
 
             # preprocessing
             image = np.asarray(ori_image)

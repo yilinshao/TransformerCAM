@@ -164,8 +164,8 @@ class VOC_Dataset_For_WSSS(VOC_Dataset):
         # gt_mask = gt_mask
 
         # 伪标签
-        # mask = Image.open(self.pred_dir + image_id + '.png')
-        mask = gt_mask
+        mask = Image.open(self.pred_dir + image_id + '.png')
+        # mask = gt_mask
         if self.transform is not None:
             input_dic = {'image':image, 'mask':mask}
             output_dic = self.transform(input_dic)

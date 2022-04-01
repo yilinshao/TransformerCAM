@@ -40,7 +40,7 @@ from tools.ai.randaugment import *
 from tqdm import tqdm
 from baselines.ViT.ViT_new import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1, 2, 3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
 parser = argparse.ArgumentParser()
 
 ###############################################################################
@@ -210,7 +210,7 @@ if __name__ == '__main__':
     ###################################################################################
     # Network
     ###################################################################################
-    model = vit_base_patch16_384(pretrained=True)
+    model = vit_large_patch16_384(pretrained=True)
 
     model = model.cuda()
     model.train()

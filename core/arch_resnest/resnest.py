@@ -46,8 +46,8 @@ def resnest101(pretrained=False, root='~/.encoding/models', **kwargs):
                    deep_stem=True, stem_width=64, avg_down=True,
                    avd=True, avd_first=False, **kwargs)
     if pretrained:
-        model.load_state_dict(torch.hub.load_state_dict_from_url(
-            resnest_model_urls['resnest101'], progress=True, check_hash=True))
+        checkpoint = torch.hub.load_state_dict_from_url(resnest_model_urls['resnest101'], progress=True, check_hash=True)
+        model.load_state_dict(checkpoint)
     return model
 
 def resnest200(pretrained=False, root='~/.encoding/models', **kwargs):

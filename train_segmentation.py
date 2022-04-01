@@ -63,13 +63,13 @@ parser.add_argument('--lr', default=0.007, type=float)
 parser.add_argument('--wd', default=4e-5, type=float)
 parser.add_argument('--nesterov', default=True, type=str2bool)
 
-# parser.add_argument('--image_size', default=512, type=int)
-# parser.add_argument('--min_image_size', default=256, type=int)
-# parser.add_argument('--max_image_size', default=1024, type=int)
+parser.add_argument('--image_size', default=512, type=int)
+parser.add_argument('--min_image_size', default=256, type=int)
+parser.add_argument('--max_image_size', default=1024, type=int)
 
-parser.add_argument('--image_size', default=384, type=int)
-parser.add_argument('--min_image_size', default=320, type=int)
-parser.add_argument('--max_image_size', default=480, type=int)
+# parser.add_argument('--image_size', default=384, type=int)
+# parser.add_argument('--min_image_size', default=320, type=int)
+# parser.add_argument('--max_image_size', default=480, type=int)
 
 parser.add_argument('--print_ratio', default=0.1, type=float)
 
@@ -132,8 +132,8 @@ if __name__ == '__main__':
     meta_dic = read_json('./data/VOC_2012.json')
     class_names = np.asarray(meta_dic['class_names'])
     
-    # train_dataset = VOC_Dataset_For_WSSS(args.data_dir, 'val', pred_dir, train_transform)
-    train_dataset = VOC_Dataset_For_Segmentation(args.data_dir, 'train', test_transform)
+    train_dataset = VOC_Dataset_For_WSSS(args.data_dir, 'train_aug', pred_dir, train_transform)
+    # train_dataset = VOC_Dataset_For_Segmentation(args.data_dir, 'train_aug', test_transform)
 
     valid_dataset = VOC_Dataset_For_Segmentation(args.data_dir, 'val', test_transform)
 

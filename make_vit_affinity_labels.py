@@ -69,7 +69,7 @@ def get_threshold(cams, mask, keys, from_mask, from_mean, calculate_miou):
     best_th = None
     if from_mask:
         assert mask is not None
-        thresholds = list(np.arange(0.10, 0.70, 0.05))
+        thresholds = list(np.arange(0.10, 0.70, 0.02))
         meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
 
         for th in thresholds:
@@ -87,7 +87,7 @@ def get_threshold(cams, mask, keys, from_mask, from_mean, calculate_miou):
             if best_mIoU < mIoU:
                 best_th = th
                 best_mIoU = mIoU
-        # print(best_mIoU)
+        print(best_mIoU)
 
         ########################
         # 用于计算为标签mIoU时
@@ -105,17 +105,17 @@ def get_threshold(cams, mask, keys, from_mask, from_mean, calculate_miou):
     elif from_mean:
 
         thresholds = [np.mean(cams)]
-        meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
-
-        for th in thresholds:
-            bg = np.ones_like(cams[:, :, 0]) * th
-            pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cams], axis=-1), axis=-1)
-
-            assert keys.shape[0] == cams.shape[-1] + 1
-            for i, key in enumerate(keys):
-                pred_masks[pred_masks == i] = key
-
-            meter_dic[th].add(pred_masks, mask)
+        # meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
+        #
+        # for th in thresholds:
+        #     bg = np.ones_like(cams[:, :, 0]) * th
+        #     pred_masks = np.argmax(np.concatenate([bg[..., np.newaxis], cams], axis=-1), axis=-1)
+        #
+        #     assert keys.shape[0] == cams.shape[-1] + 1
+        #     for i, key in enumerate(keys):
+        #         pred_masks[pred_masks == i] = key
+        #
+        #     meter_dic[th].add(pred_masks, mask)
 
         # for th in thresholds:
         #     mIoU, mIoU_foreground = meter_dic[th].get(clear=True)
@@ -190,8 +190,8 @@ if __name__ == '__main__':
         cams = cam_dict['hr_cam']
 
         args.fg_threshold, args.bg_threshold = get_threshold(cams, mask, keys,
-                                                             from_mask=False,
-                                                             from_mean=True,
+                                                             from_mask=True,
+                                                             from_mean=False,
                                                              calculate_miou=args.calculate_mIoU)
         # 1. find confident fg & bg
         fg_cam = np.pad(cams, ((1, 0), (0, 0), (0, 0)), mode='constant', constant_values=args.fg_threshold)

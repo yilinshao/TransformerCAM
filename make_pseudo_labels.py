@@ -58,7 +58,7 @@ parser.add_argument('--domain', default='train', type=str)
 
 parser.add_argument('--threshold', default=0.25, type=float)
 parser.add_argument('--crf_iteration', default=10, type=int)
-parser.add_argument('--from_grad', default=False, type=bool)
+parser.add_argument('--from_grad', default=True, type=bool)
 parser.add_argument('--use_som', default=False, type=bool)
 
 
@@ -234,7 +234,7 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
     if from_mask:
         print('Use mask to generate labels')
         assert mask is not None
-        thresholds = list(np.arange(0.10, 0.70, 0.05))
+        thresholds = list(np.arange(0.10, 0.70, 0.02))
         meter_dic = {th: Calculator_For_mIoU('./data/VOC_2012.json') for th in thresholds}
 
         for th in thresholds:
@@ -252,7 +252,7 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
             if best_mIoU < mIoU:
                 best_th = th
                 best_mIoU = mIoU
-        # print(best_mIoU)
+        print(best_mIoU)
         return best_th
 
     elif from_grad:
@@ -266,12 +266,21 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
             # plt.show()
 
             cam_grad = Sobel(class_cam, cv2.CV_64F, 1, 1, ksize=3)
+            cam_grad = np.abs(cam_grad)
 
             # plt.imshow(cam_grad)
             # plt.show()
             max_grad = np.max(cam_grad)
             max_grad_idx = np.where(cam_grad == max_grad)
-            thresholds_for_classes.append(class_cam[max_grad_idx[0][0], max_grad_idx[1][0]])
+
+            min_grad = np.min(cam_grad)
+            min_grad_idx = np.where(cam_grad == min_grad)
+
+            max_grad_cam = class_cam[max_grad_idx[0][0], max_grad_idx[1][0]]
+            min_grad_cam = class_cam[min_grad_idx[0][0], min_grad_idx[1][0]]
+            avg_cam = (max_grad_cam + min_grad_cam + 0.2 ) / 3
+
+            thresholds_for_classes.append(avg_cam)
 
         # 得到预测结果
         pred_mask = np.zeros_like(cams[:, :, 0])
@@ -334,7 +343,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     cam_dir = f'./experiments/predictions/{args.experiment_name}/'
-    pred_dir = create_directory(f'./experiments/predictions/{args.experiment_name}@crf={args.crf_iteration}/')
+    pred_dir = create_directory(f'./experiments/predictions/{args.experiment_name}@crf={args.crf_iteration}@grad/')
 
     set_seed(args.seed)
     log_func = lambda string='': print(string)
@@ -378,6 +387,10 @@ if __name__ == '__main__':
 
                 cams = np.argmax(cams, axis=0)
 
+            # cams = np.pad(cams, ((1, 0), (0, 0), (0, 0)), mode='constant', constant_values=args.threshold)
+            #
+            # cams = np.argmax(cams, axis=0)
+
             if args.crf_iteration > 0:
                 cams = crf_inference_label(np.asarray(ori_image), cams, n_labels=keys.shape[0], t=args.crf_iteration)
             conf = keys[cams]
@@ -397,6 +410,8 @@ if __name__ == '__main__':
             # plt.imshow(np.asarray(ori_image))
             # plt.show()
             # plt.imshow(decode_from_colormap(conf, dataset.colors))
+            # plt.show()
+            # plt.imshow(decode_from_colormap(gt_mask.astype(np.int32), dataset.colors))
             # plt.show()
 
             sys.stdout.write('\r# Make Pseudo Labels [{}/{}] = {:.2f}%, ({}, {})'.format(step + 1, length, (step + 1) / length * 100, (ori_h, ori_w), conf.shape))

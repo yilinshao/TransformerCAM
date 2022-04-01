@@ -118,7 +118,7 @@ if __name__ == '__main__':
     
     path_index = PathIndex(radius=10, default_size=(args.image_size // 4, args.image_size // 4))
 
-    train_dataset = VOC_Dataset_For_Affinity(args.data_dir, 'val', path_index=path_index, label_dir=args.pred_dir + '{}/'.format(args.label_name), transform=train_transform)
+    train_dataset = VOC_Dataset_For_Affinity(args.data_dir, 'train_aug', path_index=path_index, label_dir=args.pred_dir + '{}/'.format(args.label_name), transform=train_transform)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, drop_last=True)
     
     log_func('[i] mean values is {}'.format(imagenet_mean))

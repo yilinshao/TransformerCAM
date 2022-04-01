@@ -38,8 +38,8 @@ from tools.ai.randaugment import *
 
 # from baselines.ViT.ViT_LRP import vit_base_patch16_224 as vit_LRP
 # from baselines.ViT.ViT_LRP import vit_large_patch16_224 as vit_LRP
-from baselines.ViT.ViT_LRP import vit_base_patch16_384 as vit_LRP
-# from baselines.ViT.ViT_LRP import vit_large_patch16_384 as vit_LRP
+# from baselines.ViT.ViT_LRP import vit_base_patch16_384 as vit_LRP
+from baselines.ViT.ViT_LRP import vit_large_patch16_384 as vit_LRP
 
 from baselines.ViT.helpers import *
 from baselines.ViT.ViT_explanation_generator import Baselines, LRP
@@ -220,8 +220,8 @@ if __name__ == '__main__':
 
         npy_path = pred_dir + image_id + '.npy'
         img_path = vis_pred_dir + image_id + '.jpg'
-        if os.path.isfile(npy_path) and show_cam is not True:
-            continue
+        # if os.path.isfile(npy_path) and show_cam is not True:
+        #     continue
 
         strided_size = get_strided_size((ori_h, ori_w), 4)
         strided_up_size = get_strided_up_size((ori_h, ori_w), 16)
