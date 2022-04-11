@@ -63,7 +63,7 @@ parser.add_argument('--domain', default='val', type=str)
 
 parser.add_argument('--scales', default='0.5,1.0,1.5,2.0', type=str)
 parser.add_argument('--iteration', default=0, type=int)
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 
 if __name__ == '__main__':
@@ -173,16 +173,16 @@ if __name__ == '__main__':
             else:
                 pred_mask = np.argmax(preds, axis=-1)
 
-            if save_pred_mask:
-                pred_mask_for_save = decode_from_colormap(pred_mask, dataset.colors)
-                plt.imshow(pred_mask_for_save)
-                plt.savefig(pred_dir + image_id + '_pred' + '.png', dpi=200)
-
-            if save_covered_mask:
-                pred_mask_for_save = decode_from_colormap(pred_mask, dataset.colors)
-                covered_img = cv2.addWeighted(np.asarray(ori_image).astype(np.uint8), 0.5, pred_mask_for_save, 0.5, 0)
-                plt.imshow(covered_img)
-                plt.savefig(pred_dir + image_id + '_covered' + '.png', dpi=200)
+            # if save_pred_mask:
+            #     pred_mask_for_save = decode_from_colormap(pred_mask, dataset.colors)
+            #     plt.imshow(pred_mask_for_save)
+            #     plt.savefig(pred_dir + image_id + '_pred' + '.png', dpi=200)
+            #
+            # if save_covered_mask:
+            #     pred_mask_for_save = decode_from_colormap(pred_mask, dataset.colors)
+            #     covered_img = cv2.addWeighted(np.asarray(ori_image).astype(np.uint8), 0.5, pred_mask_for_save, 0.5, 0)
+            #     plt.imshow(covered_img)
+            #     plt.savefig(pred_dir + image_id + '_covered' + '.png', dpi=200)
 
             ###############################################################################
             # cv2.imwrite('./demo.jpg', np.concatenate([np.asarray(ori_image)[..., ::-1], decode_from_colormap(pred_mask, dataset.colors)], axis=1))
@@ -197,7 +197,7 @@ if __name__ == '__main__':
             if args.domain == 'test':
                 pred_mask = decode_from_colormap(pred_mask, dataset.colors)[..., ::-1]
             
-            # imageio.imwrite(pred_dir + image_id + '.png', pred_mask.astype(np.uint8))
+            imageio.imwrite(pred_dir + image_id + '.png', pred_mask.astype(np.uint8))
             
             sys.stdout.write('\r# Make CAM [{}/{}] = {:.2f}%'.format(step + 1, length, (step + 1) / length * 100))
             sys.stdout.flush()

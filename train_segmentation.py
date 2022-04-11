@@ -351,13 +351,13 @@ if __name__ == '__main__':
                                                                                        mIoU_foreground,
                                                                                        IoU_dic, TP, TN, FP, FN))
 
-            if (iteration + 1) % (10 * val_iteration) == 0:
-                epoch_num = (iteration + 1) // val_iteration
-                epoch_path = model_path.split('.pth')[0] + '_epoch_{}.pth'.format(epoch_num)
 
-                torch.save(model.module.state_dict(), epoch_path)
+            epoch_num = (iteration + 1) // val_iteration
+            epoch_path = model_path.split('.pth')[0] + '_epoch_{}.pth'.format(epoch_num)
 
-                log_func('[i] save epoch model')
+            torch.save(model.module.state_dict(), epoch_path)
+
+            log_func('[i] save epoch model')
 
             if best_valid_mIoU == -1 or best_valid_mIoU < mIoU:
                 best_valid_mIoU = mIoU

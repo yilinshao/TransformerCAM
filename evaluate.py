@@ -18,7 +18,7 @@ parser.add_argument('--gt_dir', default='../VOCtrainval_11-May-2012/Segmentation
 parser.add_argument('--logfile', default='',type=str)
 parser.add_argument('--comment', default='', type=str)
 
-parser.add_argument('--mode', default='npy', type=str) # png
+parser.add_argument('--mode', default='png', type=str) # png
 parser.add_argument('--max_th', default=0.50, type=float)
 
 args = parser.parse_args()

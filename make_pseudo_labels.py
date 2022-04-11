@@ -58,8 +58,8 @@ parser.add_argument('--domain', default='train', type=str)
 
 parser.add_argument('--threshold', default=0.25, type=float)
 parser.add_argument('--crf_iteration', default=10, type=int)
-parser.add_argument('--from_grad', default=True, type=bool)
-parser.add_argument('--use_som', default=False, type=bool)
+parser.add_argument('--from_grad', default=False, type=bool)
+parser.add_argument('--use_som', default=True, type=bool)
 
 
 def get_cam_with_doubt(cams):
@@ -71,12 +71,21 @@ def get_cam_with_doubt(cams):
         # plt.show()
 
         cam_grad = Sobel(class_cam, cv2.CV_64F, 1, 1, ksize=3)
+        cam_grad = np.abs(cam_grad)
 
         # plt.imshow(cam_grad)
         # plt.show()
         max_grad = np.max(cam_grad)
         max_grad_idx = np.where(cam_grad == max_grad)
-        thresholds_for_classes.append(class_cam[max_grad_idx[0][0], max_grad_idx[1][0]])
+
+        min_grad = np.min(cam_grad)
+        min_grad_idx = np.where(cam_grad == min_grad)
+
+        max_grad_cam = class_cam[max_grad_idx[0][0], max_grad_idx[1][0]]
+        min_grad_cam = class_cam[min_grad_idx[0][0], min_grad_idx[1][0]]
+        avg_cam = (max_grad_cam + min_grad_cam + 0.2) / 3
+
+        thresholds_for_classes.append(avg_cam)
 
     # 得到预测结果
     pred_mask = np.zeros_like(cams[:, :, 0])
@@ -95,8 +104,9 @@ def get_cam_with_doubt(cams):
     # 得到每一类背景的threshold
     thresholds_for_class_bg = []
     for th in thresholds_for_classes:
-        if th - 0.05 > 0:
-            bg_th = th - 0.05
+        if th - 0.009 > 0:
+            bg_th = th - 0.000419
+            9
         else:
             bg_th = th
         thresholds_for_class_bg.append(bg_th)
@@ -121,7 +131,7 @@ def get_cam_with_doubt(cams):
     conf[pred_bg_mask + pred_mask == 0] = 0
     # plt.imshow(conf)
     # plt.show()
-    return conf
+    return conf, pred_mask
 
 
 def get_initial_pixels(stacked_features, nlabels):
@@ -158,29 +168,48 @@ def som_inference_label(ori_image, ori_cams, cams, n_labels):
     # 计算得到包含不确定点(255)的conf
     norm_cam = []
     for ori_cam in ori_cams.transpose((2, 0, 1)):
-        norm_cam.append((ori_cam-np.min(ori_cam))/(np.max(ori_cam)-np.min(ori_cam)))
+        norm_cam.append((ori_cam - np.min(ori_cam)) / (np.max(ori_cam) - np.min(ori_cam)))
     norm_cam = np.stack(norm_cam, axis=-1)
     ori_cams = norm_cam
-    conf = get_cam_with_doubt(ori_cams)
+    conf, pred_mask = get_cam_with_doubt(ori_cams)  # conf:有不确定点的标签，pred_mask:通过梯度得到的伪标签
+    conf_with_dt = conf.copy()
 
     # 计算每一类的平均像素值
     class_avg_pixels = []
 
     for label in range(n_labels):
         all_pixels_idx = conf == label
-        # cnt = len(np.where(all_pixels_idx == True)[0])
+
+        idx_x_y = np.where(all_pixels_idx == True)
+        idx_x = idx_x_y[0]
+        idx_y = idx_x_y[1]
+        avg_x = np.mean(idx_x_y[0])
+        avg_y = np.mean(idx_x_y[1])
+
         all_pixels = ori_image[all_pixels_idx]
-        avg_pixels = np.mean(all_pixels, axis=0)
+        avg_pixels = np.mean(all_pixels.astype(np.float64), axis=0)
+        avg_pixels = np.concatenate((avg_pixels, avg_x[..., np.newaxis], avg_y[..., np.newaxis]), axis=0)
         class_avg_pixels.append(avg_pixels)
 
     # 给每一类赋予像素平均，作为som的输入
-    som_input = np.zeros_like(ori_image)
+    som_input = np.zeros(ori_image.shape[:2] + (5,)) - 1
     for label in range(n_labels):
         all_pixels_idx = conf == label
         som_input[all_pixels_idx] = class_avg_pixels[label]
 
     all_doubt_pixels_idx = conf == 255
-    som_input[all_doubt_pixels_idx] = ori_image[all_doubt_pixels_idx]
+    all_doubt_pixels_x_y = np.where(all_doubt_pixels_idx == True)
+    all_doubt_pixels_x = all_doubt_pixels_x_y[0]
+    all_doubt_pixels_y = all_doubt_pixels_x_y[1]
+
+    for i, doubt_pixels_x in enumerate(all_doubt_pixels_x):
+        x = doubt_pixels_x
+        y = all_doubt_pixels_y[i]
+
+        som_input[x, y] = np.concatenate((ori_image[x, y], x[..., np.newaxis], y[..., np.newaxis]), axis=0)
+
+    assert np.min(som_input[..., 3]) != -1
+
     # plt.imshow(som_input)
     # plt.show()
 
@@ -189,20 +218,24 @@ def som_inference_label(ori_image, ori_cams, cams, n_labels):
     # som = MiniSom(x=1, y=n_labels, input_len=ori_image.shape[-1] + cams.shape[-1] + ori_cams.shape[-1], sigma=1, learning_rate=0.2, neighborhood_function='bubble')
     # stacked_features = np.concatenate((cams, ori_image, ori_cams), axis=-1)
 
-    som = MiniSom(x=1, y=n_labels, sigma=0.5, learning_rate=0.2, input_len=ori_image.shape[-1], neighborhood_function='gaussian')
+    som = MiniSom(x=1, y=n_labels, sigma=0.1, learning_rate=0.8, input_len=som_input.shape[-1],
+                  neighborhood_function='gaussian')
     # stacked_features = np.concatenate((ori_image, ori_cams), axis=-1)
     # init_pixels = get_initial_pixels(stacked_features, n_labels)
 
     init_pixels = np.stack(class_avg_pixels)
     init_pixels = init_pixels / 255.
 
-    som_input = np.reshape(som_input, (som_input.shape[0]*som_input.shape[1], -1))
+    som_input = np.reshape(som_input, (som_input.shape[0] * som_input.shape[1], -1))
     som.fixed_weights_init(init_pixels)
     starting_weights = som.get_weights().copy()
 
     som.train(som_input, 1000, random_order=True, verbose=False)
     qnt = som.quantization(som_input)
     clustered = np.reshape(qnt, (ori_image.shape[0], ori_image.shape[1], -1))
+
+    # 只用前3个RGB通道
+    clustered = clustered[..., :3]
 
     # plt.imshow(clustered)
     # plt.show()
@@ -211,7 +244,7 @@ def som_inference_label(ori_image, ori_cams, cams, n_labels):
 
     palette = {}
     for i, init_pixel in enumerate(wined_vectors[0]):
-        palette[i] = init_pixel
+        palette[i] = init_pixel[:3]
 
     mask_label = np.ones((clustered.shape[0], clustered.shape[1]), dtype=np.uint8) * -1
     for c, i in palette.items():
@@ -223,8 +256,9 @@ def som_inference_label(ori_image, ori_cams, cams, n_labels):
     # plt.imshow(mask_label)
     # plt.show()
 
-    conf[conf==255] = mask_label[conf == 255]
-    return conf
+    conf[conf == 255] = mask_label[conf == 255]
+
+    return conf, conf_with_dt, pred_mask
 
 
 def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
@@ -278,7 +312,7 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
 
             max_grad_cam = class_cam[max_grad_idx[0][0], max_grad_idx[1][0]]
             min_grad_cam = class_cam[min_grad_idx[0][0], min_grad_idx[1][0]]
-            avg_cam = (max_grad_cam + min_grad_cam + 0.2 ) / 3
+            avg_cam = (max_grad_cam + min_grad_cam + 0.2) / 3
 
             thresholds_for_classes.append(avg_cam)
 
@@ -289,7 +323,8 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
             pred_class_cam = np.ones_like(cams[:, :, 0]) * -1
             class_cam = cams[..., i]
             class_bg = np.ones_like(cams[:, :, 0]) * class_th
-            pred_class_masks = np.argmax(np.concatenate([class_bg[..., np.newaxis], class_cam[..., np.newaxis]], axis=-1), axis=-1)
+            pred_class_masks = np.argmax(
+                np.concatenate([class_bg[..., np.newaxis], class_cam[..., np.newaxis]], axis=-1), axis=-1)
             pred_class_cam[pred_class_masks == 1] = class_cam[pred_class_masks == 1]
             pred_mask = np.concatenate([pred_mask, pred_class_cam[..., np.newaxis]], axis=-1)
 
@@ -336,6 +371,7 @@ def get_threshold(cams, mask, keys, from_mask, from_grad, from_mean):
     else:
         raise ValueError("Unsupported mode")
 
+
 if __name__ == '__main__':
     ###################################################################################
     # Arguments
@@ -347,12 +383,12 @@ if __name__ == '__main__':
 
     set_seed(args.seed)
     log_func = lambda string='': print(string)
-    
+
     ###################################################################################
     # Transform, Dataset, DataLoader
     ###################################################################################
     dataset = VOC_Dataset_For_Making_CAM(args.data_dir, args.domain)
-    
+
     #################################################################################################
     # Evaluation
     #################################################################################################
@@ -365,12 +401,12 @@ if __name__ == '__main__':
             png_path = pred_dir + image_id + '.png'
             # if os.path.isfile(png_path):
             #     continue
-            
+
             ori_w, ori_h = ori_image.size
             predict_dict = np.load(cam_dir + image_id + '.npy', allow_pickle=True).item()
             gt_mask = np.asarray(gt_mask)
             keys = predict_dict['keys']
-            
+
             cams = predict_dict['rw']
             ori_cams = cams.copy()
 
@@ -378,8 +414,14 @@ if __name__ == '__main__':
                 cams = get_threshold(cams, gt_mask, keys, from_grad=True, from_mask=False, from_mean=False)
 
             elif args.use_som == True:
-                cams = som_inference_label(np.asarray(ori_image), ori_cams.transpose((1, 2, 0)), cams[..., np.newaxis],
+                # cams：casom预测的伪标签[0,1]，conf_with_dt：有模糊背景的标签[0,1,255],pred_mask:casom前通过梯度得到的伪标签[0,1]
+                cams, conf_with_dt, pred_mask = som_inference_label(np.asarray(ori_image), ori_cams.transpose((1, 2, 0)), cams[..., np.newaxis],
                                            n_labels=keys.shape[0])
+
+                # if args.crf_iteration > 0:
+                #     pred_mask = crf_inference_label(np.asarray(ori_image), pred_mask, n_labels=keys.shape[0],
+                #                                t=args.crf_iteration)
+                pred_mask = keys[pred_mask]
 
             else:
                 args.threshold = get_threshold(cams, gt_mask, keys, from_grad=False, from_mask=False, from_mean=True)
@@ -394,8 +436,7 @@ if __name__ == '__main__':
             if args.crf_iteration > 0:
                 cams = crf_inference_label(np.asarray(ori_image), cams, n_labels=keys.shape[0], t=args.crf_iteration)
             conf = keys[cams]
-            imageio.imwrite(png_path, conf.astype(np.uint8))
-
+            # imageio.imwrite(png_path, conf.astype(np.uint8))
 
             matrix.add(conf, gt_mask)
             mIoU, mIoU_foreground, IoU_dic, TP, TN, FP, FN = matrix.get(detail=True, clear=False)
@@ -408,14 +449,61 @@ if __name__ == '__main__':
             # cv2.waitKey(0)
 
             # plt.imshow(np.asarray(ori_image))
+            # frame = plt.gca()
+            # frame.axes.get_yaxis().set_visible(False)
+            # frame.axes.get_xaxis().set_visible(False)
             # plt.show()
+            # plt.savefig('document/'+ image_id + '_no_casom.png')
+
+
             # plt.imshow(decode_from_colormap(conf, dataset.colors))
+            # frame = plt.gca()
+            # frame.axes.get_yaxis().set_visible(False)
+            # frame.axes.get_xaxis().set_visible(False)
+            # plt.savefig('/document/' + image_id + '_with_casom.png', dpi=400)
             # plt.show()
+
+            conf_for_save = decode_from_colormap(conf, dataset.colors)
+            covered_img = cv2.addWeighted(np.asarray(ori_image).astype(np.uint8), 0.5, conf_for_save, 0.5, 0)
+            plt.imshow(covered_img)
+            frame = plt.gca()
+            frame.axes.get_yaxis().set_visible(False)
+            frame.axes.get_xaxis().set_visible(False)
+            plt.savefig('/document/0.009/' + image_id + '_with_casom.png', dpi=400)
+            # plt.show()
+
+            plt.imshow(conf_with_dt)
+            frame = plt.gca()
+            frame.axes.get_yaxis().set_visible(False)
+            frame.axes.get_xaxis().set_visible(False)
+            plt.savefig('/document/0.009/' + image_id + '_doubt.png', dpi=400)
+            # plt.show()
+
+            # plt.imshow(decode_from_colormap(pred_mask, dataset.colors))
+            # frame = plt.gca()
+            # frame.axes.get_yaxis().set_visible(False)
+            # frame.axes.get_xaxis().set_visible(False)
+            # plt.savefig('/document/' + image_id + '_without_casom.png', dpi=400)
+            # plt.show()
+
+            pred_mask_for_save = decode_from_colormap(pred_mask, dataset.colors)
+            covered_img = cv2.addWeighted(np.asarray(ori_image).astype(np.uint8), 0.5, pred_mask_for_save, 0.5, 0)
+            plt.imshow(covered_img)
+            frame = plt.gca()
+            frame.axes.get_yaxis().set_visible(False)
+            frame.axes.get_xaxis().set_visible(False)
+            plt.savefig('/document/0.009/' + image_id + '_without_casom.png', dpi=400)
+            # plt.show()
+
+
             # plt.imshow(decode_from_colormap(gt_mask.astype(np.int32), dataset.colors))
             # plt.show()
 
-            sys.stdout.write('\r# Make Pseudo Labels [{}/{}] = {:.2f}%, ({}, {})'.format(step + 1, length, (step + 1) / length * 100, (ori_h, ori_w), conf.shape))
+            sys.stdout.write(
+                '\r# Make Pseudo Labels [{}/{}] = {:.2f}%, ({}, {})'.format(step + 1, length, (step + 1) / length * 100,
+                                                                            (ori_h, ori_w), conf.shape))
             sys.stdout.flush()
         print()
-    
-    print("python3 evaluate.py --experiment_name {} --mode png".format(args.experiment_name + f'@crf={args.crf_iteration}'))
+
+    print("python3 evaluate.py --experiment_name {} --mode png".format(
+        args.experiment_name + f'@crf={args.crf_iteration}'))
